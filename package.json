@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google/genai": "^1.38.0",
+    "dotenv": "^17.2.3",
     "puppeteer-real-browser": "^1.4.4",
     "sharp": "^0.34.5"
   }

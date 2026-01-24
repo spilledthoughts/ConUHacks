@@ -3,13 +3,14 @@ const { GoogleGenAI } = require('@google/genai');
 const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 // Configuration
 const CONFIG = {
     REGISTER_URL: 'https://deckathon-concordia.com/register',
     LOGIN_URL: 'https://deckathon-concordia.com/login',
     CHROME_PATH: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    GEMINI_API_KEY: 'AIzaSyAlFp5vOqtClBReZ5ZoT-fTuKEexYUanWs'
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY
 };
 
 // Initialize Gemini
