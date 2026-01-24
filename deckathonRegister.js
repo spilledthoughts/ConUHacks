@@ -239,8 +239,8 @@ async function solveCaptcha(page) {
 }
 
 /**
- * Solve CAPTCHA by matching faces against reference images using Gemini AI
- * Used for the final dropout CAPTCHA
+ * Solve CAPTCHA using Gemini AI with all farmed face images
+ * Sends all images from captcha_faces folder for comparison
  */
 async function solveWhiteCaptcha(page) {
     const hasCaptcha = await page.evaluate(() =>
@@ -248,126 +248,310 @@ async function solveWhiteCaptcha(page) {
     );
     if (!hasCaptcha) return;
 
-    console.log('Final CAPTCHA detected! Solving with Gemini face matching...');
+    console.log('Final CAPTCHA detected! Solving with Gemini...');
 
-    // Load all 5 reference images
-    const referenceDir = path.join(__dirname, 'reference_images');
-    const referenceFiles = ['Deck_Andrei.jpeg', 'Deck_Franco.jpeg', 'Deck_Laurent.jpeg', 'Deck_Mark.jpeg', 'Deck_Sunwoong.jpeg'];
-
-    const referenceImages = [];
-    for (const file of referenceFiles) {
-        const imagePath = path.join(referenceDir, file);
-        const imageBuffer = fs.readFileSync(imagePath);
-        const base64Image = imageBuffer.toString('base64');
-        const name = file.replace('Deck_', '').replace('.jpeg', '');
-        referenceImages.push({ name, data: base64Image });
-        console.log(`Loaded reference: ${name}`);
-    }
-
-    // Screenshot the CAPTCHA element
-    const captchaElement = await page.$('.bg-white.rounded-lg.shadow-2xl');
-    if (!captchaElement) {
-        console.log('CAPTCHA element not found');
+    // Load all farmed face images from captcha_faces folder
+    const facesDir = path.join(__dirname, 'captcha_faces');
+    if (!fs.existsSync(facesDir)) {
+        console.log('No captcha_faces folder found - run imgcapture.js first');
         return;
     }
-    const captchaScreenshot = await captchaElement.screenshot({ encoding: 'base64' });
 
-    // Build the prompt with all reference images + CAPTCHA
-    const prompt = `You are looking at a CAPTCHA verification with a 3x3 grid of face images (9 images total, numbered 1-9):
-1 2 3
-4 5 6
-7 8 9
+    const faceFiles = fs.readdirSync(facesDir)
+        .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
 
-I have provided 5 REFERENCE IMAGES of specific people (Andrei, Franco, Laurent, Mark, Sunwoong) followed by a CAPTCHA screenshot.
+    if (faceFiles.length === 0) {
+        console.log('No farmed faces found - run imgcapture.js first');
+        return;
+    }
 
-Your task: Identify which images in the CAPTCHA grid (1-9) show the SAME PERSON as ANY of the 5 reference images.
+    console.log(`Loading ${faceFiles.length} farmed face images...`);
 
-IMPORTANT:
-- Compare facial features carefully (face shape, glasses, beard, skin tone, etc.)
-- The CAPTCHA images may have different lighting, angles, or backgrounds
-- Return ONLY the numbers of matching images, separated by commas
-- If no matches found, return "none"
+    // Wait for all CAPTCHA images to fully load
+    console.log('Waiting for CAPTCHA images to load...');
+    await page.waitForFunction(() => {
+        const imgs = document.querySelectorAll('.grid.grid-cols-3 > div img');
+        if (imgs.length < 9) return false;
+        return Array.from(imgs).every(img => img.complete && img.naturalWidth > 0);
+    }, { timeout: 5000 }).catch(() => {
+        console.log('Image load timeout - proceeding anyway');
+    });
+    await sleep(300); // Extra buffer after load
 
-Example response: 2,5,7`;
+    // Save screenshot to screenshots folder AFTER images loaded
+    const screenshotsDir = path.join(__dirname, 'screenshots');
+    if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await page.screenshot({ path: path.join(screenshotsDir, `captcha_${timestamp}.png`) });
+    console.log('Saved CAPTCHA screenshot');
+
+    // Get all 9 CAPTCHA images
+    const imageContainers = await page.$$('.grid.grid-cols-3 > div');
+    const captchaImages = [];
+
+    for (let i = 0; i < imageContainers.length; i++) {
+        const img = await imageContainers[i].$('img');
+        if (!img) continue;
+        try {
+            const data = await img.screenshot({ encoding: 'base64' });
+            captchaImages.push({ index: i + 1, data });
+        } catch (err) { }
+    }
+    console.log(`Got ${captchaImages.length} CAPTCHA images`);
+
+    // Build Gemini request
+    const contents = [];
+
+    // Add all farmed faces first WITH LABELS
+    contents.push({ text: `KNOWN IMAGES (${faceFiles.length} images numbered 1-${faceFiles.length}):` });
+    for (let i = 0; i < faceFiles.length; i++) {
+        const file = faceFiles[i];
+        const imgPath = path.join(facesDir, file);
+        const data = fs.readFileSync(imgPath).toString('base64');
+        const mimeType = file.endsWith('.png') ? 'image/png' : 'image/jpeg';
+        contents.push({ inlineData: { mimeType, data } });
+        contents.push({ text: `Known ${i + 1}` });
+    }
+
+    // Add CAPTCHA images
+    contents.push({ text: `\nCAPTCHA GRID (9 images numbered 1-9):` });
+    for (const img of captchaImages) {
+        contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
+        contents.push({ text: `Image ${img.index}` });
+    }
+
+    // Prompt
+    const prompt = `Compare the CAPTCHA images (1-9) against the KNOWN IMAGES.
+
+Your task: Find which CAPTCHA images are PIXEL-FOR-PIXEL the EXACT SAME photograph as any known image.
+
+BE EXTREMELY STRICT:
+- Must be the EXACT SAME photograph, just ROTATED and/or CROPPED
+- Same person in a DIFFERENT photo = NO MATCH
+- Similar looking scene = NO MATCH  
+- Only match if you are 100% CERTAIN it's the exact same source image
+
+For each match, you MUST describe SPECIFIC VISUAL EVIDENCE proving it's the same image:
+- Describe the EXACT background details (what objects, textures, colors are behind the person?)
+- Describe the EXACT pose (hand positions, body angle, facial expression)
+- Describe any text, logos, or unique objects visible
+- Describe clothing details and accessories
+
+If you cannot describe specific matching details, it's NOT a match.
+
+The image may be rotated 90°, 180°, 270°, or any angle. It may also be cropped.
+
+IMPORTANT: Be conservative. It's better to miss a match than include a false positive. For example, if the image seems to be the same person wearing the same thing, but one has more of the hoodie with white text, that one is WRONG.
+
+Example:
+Image 3 matches Known Image 15: Both show a man in a RED HOODIE with "SUPREME" logo, standing in front of a WHITE BRICK WALL with a green plant in bottom left corner. Same exact hand position making peace sign.
+
+On your FINAL LINE, put ONLY the matching numbers comma-separated.
+If no certain matches, return "none".
+
+FINAL WARNING: SOMETIMES THE FAKE IMAGES WILL REPLICATE WHAT THE REAL IMAGES DO BUT STILL AREN'T THE SAME IMAGE. BE EXTREMELY STRICT.
+
+FINAL ANSWER: 3`;
+
+    contents.push({ text: prompt });
 
     try {
-        // Prepare contents array with all reference images + captcha
-        const contents = [];
+        console.log('Sending 3 parallel Gemini calls for majority voting...');
 
-        // Add reference images first
-        for (const ref of referenceImages) {
-            contents.push({ inlineData: { mimeType: 'image/jpeg', data: ref.data } });
-            contents.push({ text: `Reference: ${ref.name}` });
-        }
-
-        // Add the CAPTCHA screenshot
-        contents.push({ inlineData: { mimeType: 'image/png', data: captchaScreenshot } });
-        contents.push({ text: prompt });
-
-        console.log('Sending to Gemini for face matching...');
-        const result = await ai.models.generateContent({
+        // Run 3 parallel calls
+        const geminiCall = () => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: contents,
+            generationConfig: {
+                thinkingConfig: {
+                    thinkingLevel: 'HIGH'
+                }
+            }
         });
 
-        let responseText = result.text.trim();
-        console.log(`Gemini response: ${responseText}`);
+        const [result1, result2, result3] = await Promise.all([
+            geminiCall().catch(e => ({ text: 'none' })),
+            geminiCall().catch(e => ({ text: 'none' })),
+            geminiCall().catch(e => ({ text: 'none' }))
+        ]);
 
-        // If Gemini says none, retry with insistence that there's at least one match
-        if (responseText.toLowerCase() === 'none' || responseText.toLowerCase().includes('none')) {
-            console.log('Gemini said none, retrying with insistence...');
+        // Parse each response for numbers
+        const parseResponse = (result) => {
+            const text = result.text?.trim() || '';
+            const lines = text.split('\n').filter(l => l.trim());
+            const lastLine = lines[lines.length - 1]
+                ?.replace(/\*\*/g, '')
+                ?.replace(/FINAL ANSWER:?/i, '')
+                ?.trim() || '';
+            if (lastLine.toLowerCase() === 'none') return [];
+            return [...new Set(lastLine.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= 9) || [])];
+        };
 
-            const retryPrompt = `You previously said "none" but there is DEFINITELY at least one match in the CAPTCHA grid.
-Look again at the 9 CAPTCHA images and compare them to the 5 reference people (Andrei, Franco, Laurent, Mark, Sunwoong).
+        const votes1 = parseResponse(result1);
+        const votes2 = parseResponse(result2);
+        const votes3 = parseResponse(result3);
 
-Find the image that is MOST LIKELY to be one of these people, even if you're not 100% certain.
-Consider similar facial features, face shape, glasses, beard, hair style, etc.
+        console.log(`Vote 1: ${votes1.join(',') || 'none'}`);
+        console.log(`Vote 2: ${votes2.join(',') || 'none'}`);
+        console.log(`Vote 3: ${votes3.join(',') || 'none'}`);
 
-Return ONLY the number(s) of the most likely matching image(s), separated by commas.
-You MUST return at least one number between 1-9.`;
-
-            contents.push({ text: retryPrompt });
-
-            const retryResult = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: contents,
-            });
-
-            responseText = retryResult.text.trim();
-            console.log(`Gemini retry response: ${responseText}`);
+        // Count votes for each number 1-9
+        const voteCount = {};
+        for (let i = 1; i <= 9; i++) {
+            voteCount[i] = 0;
+            if (votes1.includes(i)) voteCount[i]++;
+            if (votes2.includes(i)) voteCount[i]++;
+            if (votes3.includes(i)) voteCount[i]++;
         }
 
-        // Parse response to get image numbers
-        if (responseText.toLowerCase() === 'none') {
-            console.log('Still no matches found after retry');
-        } else {
-            const numbers = responseText.split(',')
-                .map(n => parseInt(n.trim()))
-                .filter(n => n >= 1 && n <= 9);
-            console.log(`Selecting images: ${numbers.join(', ')}`);
+        // Majority = 2 or more votes
+        const majorityNumbers = Object.entries(voteCount)
+            .filter(([num, count]) => count >= 2)
+            .map(([num, count]) => parseInt(num));
 
-            // Click selected images
-            const imageContainers = await page.$$('.grid.grid-cols-3 > div');
-            for (const num of numbers) {
-                if (imageContainers[num - 1]) {
-                    await imageContainers[num - 1].click();
-                    await sleep(50);
-                }
+        console.log(`Majority consensus: ${majorityNumbers.join(', ') || 'none'}`);
+
+        // Extract matched Known image numbers from all responses
+        const allResponses = [result1.text || '', result2.text || '', result3.text || ''].join(' ');
+        const knownMatches = allResponses.match(/Known\s*(?:Image\s*)?(\d+)/gi) || [];
+        const matchedKnownNumbers = [...new Set(knownMatches.map(m => parseInt(m.match(/\d+/)[0])))];
+
+        // Click majority-agreed images
+        for (const num of majorityNumbers) {
+            if (imageContainers[num - 1]) {
+                await imageContainers[num - 1].click();
+                await sleep(50);
             }
         }
 
-        // Click verify
-        await sleep(200);
-        await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const btn = buttons.find(b => b.textContent.includes('Verify'));
-            if (btn && !btn.disabled) btn.click();
-        });
-        console.log('Clicked Verify');
-        await sleep(1500);
+        // Store matched known images for tracking
+        global.lastMatchedKnownImages = matchedKnownNumbers;
     } catch (err) {
-        console.log('Gemini face matching error:', err.message);
+        console.log('Gemini error:', err.message);
+        global.lastMatchedKnownImages = [];
     }
+
+    // Click verify
+    await sleep(200);
+    await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const btn = buttons.find(b => b.textContent.includes('Verify'));
+        if (btn && !btn.disabled) btn.click();
+    });
+    console.log('Clicked Verify');
+    await sleep(1500);
+}
+
+
+/**
+ * Farm face images from CAPTCHA - save only NEW unique faces
+ * Used by imgcapture.js
+ */
+async function farmFaceCaptcha(page) {
+    const hasCaptcha = await page.evaluate(() =>
+        document.body.innerText.includes("Verify You're Human")
+    );
+    if (!hasCaptcha) {
+        console.log('No face CAPTCHA to farm');
+        return 0;
+    }
+
+    console.log('🎯 Farming face CAPTCHA images...');
+
+    // Ensure captcha_faces directory exists
+    const facesDir = path.join(__dirname, 'captcha_faces');
+    if (!fs.existsSync(facesDir)) {
+        fs.mkdirSync(facesDir, { recursive: true });
+    }
+
+    // Get all currently saved faces
+    const savedFaceFiles = fs.readdirSync(facesDir)
+        .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
+    const savedFaces = savedFaceFiles.map(f => ({
+        name: f,
+        data: fs.readFileSync(path.join(facesDir, f)).toString('base64')
+    }));
+    console.log(`Currently have ${savedFaces.length} saved faces`);
+
+    // Get all 9 CAPTCHA images individually
+    const imageContainers = await page.$$('.grid.grid-cols-3 > div');
+    const captchaImages = [];
+
+    for (let i = 0; i < imageContainers.length; i++) {
+        const img = await imageContainers[i].$('img');
+        if (!img) continue;
+        try {
+            const data = await img.screenshot({ encoding: 'base64' });
+            captchaImages.push({ index: i + 1, data });
+        } catch (err) {
+            console.log(`Failed to capture image ${i + 1}`);
+        }
+    }
+    console.log(`Got ${captchaImages.length} CAPTCHA images`);
+
+    // Build Gemini request with saved faces + CAPTCHA images
+    const contents = [];
+
+    if (savedFaces.length > 0) {
+        contents.push({ text: `SAVED IMAGES (${savedFaces.length} already in collection):` });
+        for (const face of savedFaces) {
+            contents.push({ inlineData: { mimeType: 'image/png', data: face.data } });
+        }
+    } else {
+        contents.push({ text: 'SAVED IMAGES: None yet (empty collection - all faces are new!)' });
+    }
+
+    contents.push({ text: `\nCAPTCHA GRID IMAGES (numbered 1-${captchaImages.length}):` });
+    for (const img of captchaImages) {
+        contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
+        contents.push({ text: `Image ${img.index}` });
+    }
+
+    const prompt = `Which CAPTCHA images (1-${captchaImages.length}) show faces/people NOT already in saved collection?
+- Images may be rotated at ANY angle or cropped
+- Compare the PERSON (face features) not exact image
+- Same person in different pose/angle = NOT new
+- Non-face images (objects, animals, etc.) = NOT new
+
+Return comma-separated numbers of NEW FACES only. If all are already saved, return "NONE".`;
+
+    contents.push({ text: prompt });
+
+    console.log('Asking Gemini which faces are new...');
+
+    let newImagesFound = 0;
+
+    try {
+        const result = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: contents
+        });
+
+        const response = result.text.trim();
+        console.log(`Gemini: ${response}`);
+
+        if (response.toUpperCase() !== 'NONE') {
+            const newNumbers = response.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= captchaImages.length) || [];
+
+            for (const num of newNumbers) {
+                const img = captchaImages.find(i => i.index === num);
+                if (img) {
+                    const filename = `face_${Date.now()}_${num}.png`;
+                    const filepath = path.join(facesDir, filename);
+                    fs.writeFileSync(filepath, Buffer.from(img.data, 'base64'));
+                    console.log(`  ✅ Saved: ${filename}`);
+                    newImagesFound++;
+                    await sleep(10); // Prevent same timestamp
+                }
+            }
+        } else {
+            console.log('No new faces to save');
+        }
+    } catch (err) {
+        console.log('Gemini error:', err.message);
+    }
+
+    return newImagesFound;
 }
 
 /**
@@ -439,11 +623,13 @@ Return ONLY the numbers, separated by commas. Example: 1,3,5`;
 // MAIN REGISTRATION FLOW
 // ============================================================================
 
-async function registerOnDeckathon() {
+async function registerOnDeckathon(options = {}) {
+    const { runId, farmMode = false } = options;
     let browser;
 
     try {
-        console.log('Starting Deckathon Registration Script\n');
+        const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
+        console.log(`${prefix}Starting Deckathon Registration Script${farmMode ? ' (FARM MODE)' : ''}\n`);
 
         // Generate random credentials for new account
         const username = generateRandomString(8) + Math.floor(Math.random() * 999);
@@ -885,10 +1071,49 @@ async function registerOnDeckathon() {
                 console.log('Clicked Confirm Dropout');
                 await sleep(1000);
 
-                // Solve final CAPTCHA
-                await solveWhiteCaptcha(page);
-                console.log('Student Dropout complete');
+                // Solve or farm CAPTCHA depending on mode
+                if (farmMode) {
+                    const newFaces = await farmFaceCaptcha(page);
+                    console.log(`Farming complete. New faces saved: ${newFaces}`);
+                } else {
+                    await solveWhiteCaptcha(page);
+                    console.log('Student Dropout complete');
+                }
             }
+        }
+
+        // Check for success message after final CAPTCHA
+        await sleep(3000);
+        const pageText = await page.evaluate(() => document.body.innerText);
+        const isSuccess = pageText.includes('Congratulations') || pageText.includes('🎓') || pageText.includes('successfully');
+
+        if (isSuccess) {
+            console.log('✅ SUCCESS - Congratulations message found!');
+
+            // Track which known images led to success
+            const matchedKnowns = global.lastMatchedKnownImages || [];
+            if (matchedKnowns.length > 0) {
+                console.log(`Matched Known Images: ${matchedKnowns.join(', ')}`);
+
+                // Update tally file
+                const tallyPath = path.join(__dirname, 'data', 'captcha_success_tally.json');
+                let tally = {};
+                if (fs.existsSync(tallyPath)) {
+                    tally = JSON.parse(fs.readFileSync(tallyPath, 'utf8'));
+                }
+                for (const num of matchedKnowns) {
+                    const key = `face_${String(num).padStart(2, '0')}`;
+                    tally[key] = (tally[key] || 0) + 1;
+                }
+                // Sort by face number ascending
+                const sortedTally = Object.keys(tally)
+                    .sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)))
+                    .reduce((obj, key) => { obj[key] = tally[key]; return obj; }, {});
+                fs.writeFileSync(tallyPath, JSON.stringify(sortedTally, null, 2));
+                console.log(`Updated tally: ${tallyPath}`);
+            }
+        } else {
+            console.log('❌ FAILED - No success message found');
         }
 
         // ====================================================================
@@ -914,6 +1139,7 @@ async function registerOnDeckathon() {
             fullName,
             email,
             password,
+            success: isSuccess,
             timestamp: new Date().toISOString()
         });
         fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
@@ -922,12 +1148,28 @@ async function registerOnDeckathon() {
         await sleep(500);
         console.log('Done!');
 
+        // Close browser if running as part of batch
+        if (runId !== undefined && browser) {
+            await browser.close();
+        }
+
+        return { success: isSuccess, username, error: null };
+
     } catch (error) {
         console.error('Error:', error.message);
+        if (runId !== undefined && browser) {
+            try { await browser.close(); } catch (e) { }
+        }
+        return { success: false, username: null, error: error.message };
     }
 
     console.log('Browser kept open for debugging');
 }
 
-// Run the script
-registerOnDeckathon();
+// Export for use in run10.js
+module.exports = { registerOnDeckathon };
+
+// Run directly if this file is executed
+if (require.main === module) {
+    registerOnDeckathon();
+}

@@ -1,0 +1,69 @@
+{
+  "timestamp": "2026-01-24T22:54:38.163Z",
+  "totalRuns": 10,
+  "successCount": 4,
+  "failCount": 6,
+  "successRate": "40.0%",
+  "results": [
+    {
+      "runId": 1,
+      "success": true,
+      "username": "xfjqmvez863",
+      "error": null
+    },
+    {
+      "runId": 2,
+      "success": false,
+      "username": "cknyrnsc123",
+      "error": null
+    },
+    {
+      "runId": 3,
+      "success": false,
+      "username": "nsncxevi309",
+      "error": null
+    },
+    {
+      "runId": 4,
+      "success": false,
+      "username": "uxwpmizs381",
+      "error": null
+    },
+    {
+      "runId": 5,
+      "success": true,
+      "username": "xntsukoi475",
+      "error": null
+    },
+    {
+      "runId": 6,
+      "success": true,
+      "username": "kfnrhrsm466",
+      "error": null
+    },
+    {
+      "runId": 7,
+      "success": false,
+      "username": "nyaxkwti388",
+      "error": null
+    },
+    {
+      "runId": 8,
+      "success": true,
+      "username": "ummbgznb577",
+      "error": null
+    },
+    {
+      "runId": 9,
+      "success": false,
+      "username": "iyfbdrhs677",
+      "error": null
+    },
+    {
+      "runId": 10,
+      "success": false,
+      "username": "qiophsqw810",
+      "error": null
+    }
+  ]
+}
