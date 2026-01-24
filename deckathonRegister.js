@@ -880,13 +880,28 @@ IMPORTANT: Return ONLY the numbers, nothing else.`;
                                 console.log('✅ Selected dropout reason');
                                 await sleep(300);
 
-                                // Move mouse around randomly for 0.75s (anti-bot bypass)
-                                console.log('🖱️ Moving mouse around...');
-                                for (let i = 0; i < 15; i++) {
-                                    const x = Math.floor(Math.random() * 800) + 100;
-                                    const y = Math.floor(Math.random() * 600) + 100;
-                                    await page.mouse.move(x, y);
-                                    await sleep(50);
+                                // Move mouse around naturally like a human for 1s (anti-bot bypass)
+                                console.log('🖱️ Moving mouse around naturally...');
+                                let currentX = 500, currentY = 400;
+                                for (let i = 0; i < 25; i++) {
+                                    // Generate smooth movement with some randomness
+                                    const targetX = Math.floor(Math.random() * 700) + 150;
+                                    const targetY = Math.floor(Math.random() * 500) + 150;
+
+                                    // Move in small steps toward target (bezier-like)
+                                    const steps = Math.floor(Math.random() * 3) + 2;
+                                    for (let s = 0; s < steps; s++) {
+                                        const progress = (s + 1) / steps;
+                                        // Ease out curve
+                                        const eased = 1 - Math.pow(1 - progress, 2);
+                                        const x = Math.floor(currentX + (targetX - currentX) * eased + (Math.random() - 0.5) * 30);
+                                        const y = Math.floor(currentY + (targetY - currentY) * eased + (Math.random() - 0.5) * 30);
+                                        await page.mouse.move(x, y);
+                                        await sleep(Math.floor(Math.random() * 20) + 10);
+                                    }
+                                    currentX = targetX;
+                                    currentY = targetY;
+                                    await sleep(Math.floor(Math.random() * 30) + 10);
                                 }
 
                                 // Click Next button using puppeteer native click
