@@ -9,7 +9,7 @@ require('dotenv').config();
 const CONFIG = {
     REGISTER_URL: 'https://deckathon-concordia.com/register',
     LOGIN_URL: 'https://deckathon-concordia.com/login',
-    CHROME_PATH: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    CHROME_PATH: process.env.CHROME_PATH,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY
 };
 
