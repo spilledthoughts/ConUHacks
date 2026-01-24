@@ -239,7 +239,7 @@ async function solveCaptcha(page) {
 }
 
 /**
- * Solve CAPTCHA by selecting pure white images (RGB > 240)
+ * Solve CAPTCHA by matching faces against reference images using Gemini AI
  * Used for the final dropout CAPTCHA
  */
 async function solveWhiteCaptcha(page) {
@@ -248,54 +248,126 @@ async function solveWhiteCaptcha(page) {
     );
     if (!hasCaptcha) return;
 
-    console.log('Final CAPTCHA detected! Selecting white images...');
-    const imageContainers = await page.$$('.grid.grid-cols-3 > div');
-    const selectedImages = [];
+    console.log('Final CAPTCHA detected! Solving with Gemini face matching...');
 
-    // Check each image for pure white center pixel
-    for (let i = 0; i < imageContainers.length; i++) {
-        const img = await imageContainers[i].$('img');
-        if (!img) continue;
+    // Load all 5 reference images
+    const referenceDir = path.join(__dirname, 'reference_images');
+    const referenceFiles = ['Deck_Andrei.jpeg', 'Deck_Franco.jpeg', 'Deck_Laurent.jpeg', 'Deck_Mark.jpeg', 'Deck_Sunwoong.jpeg'];
 
-        try {
-            const screenshotData = await img.screenshot();
-            const { data, info } = await sharp(Buffer.from(screenshotData))
-                .raw()
-                .toBuffer({ resolveWithObject: true });
+    const referenceImages = [];
+    for (const file of referenceFiles) {
+        const imagePath = path.join(referenceDir, file);
+        const imageBuffer = fs.readFileSync(imagePath);
+        const base64Image = imageBuffer.toString('base64');
+        const name = file.replace('Deck_', '').replace('.jpeg', '');
+        referenceImages.push({ name, data: base64Image });
+        console.log(`Loaded reference: ${name}`);
+    }
 
-            const centerX = Math.floor(info.width / 2);
-            const centerY = Math.floor(info.height / 2);
-            const pixelIndex = (centerY * info.width + centerX) * info.channels;
-            const r = data[pixelIndex];
-            const g = data[pixelIndex + 1];
-            const b = data[pixelIndex + 2];
+    // Screenshot the CAPTCHA element
+    const captchaElement = await page.$('.bg-white.rounded-lg.shadow-2xl');
+    if (!captchaElement) {
+        console.log('CAPTCHA element not found');
+        return;
+    }
+    const captchaScreenshot = await captchaElement.screenshot({ encoding: 'base64' });
 
-            // Pure white threshold: all RGB values > 240
-            const isPureWhite = r > 240 && g > 240 && b > 240;
-            console.log(`Image ${i + 1}: RGB(${r},${g},${b}) -> ${isPureWhite ? 'SELECT' : 'skip'}`);
+    // Build the prompt with all reference images + CAPTCHA
+    const prompt = `You are looking at a CAPTCHA verification with a 3x3 grid of face images (9 images total, numbered 1-9):
+1 2 3
+4 5 6
+7 8 9
 
-            if (isPureWhite) selectedImages.push(i);
-        } catch (err) {
-            // Skip failed images
+I have provided 5 REFERENCE IMAGES of specific people (Andrei, Franco, Laurent, Mark, Sunwoong) followed by a CAPTCHA screenshot.
+
+Your task: Identify which images in the CAPTCHA grid (1-9) show the SAME PERSON as ANY of the 5 reference images.
+
+IMPORTANT:
+- Compare facial features carefully (face shape, glasses, beard, skin tone, etc.)
+- The CAPTCHA images may have different lighting, angles, or backgrounds
+- Return ONLY the numbers of matching images, separated by commas
+- If no matches found, return "none"
+
+Example response: 2,5,7`;
+
+    try {
+        // Prepare contents array with all reference images + captcha
+        const contents = [];
+
+        // Add reference images first
+        for (const ref of referenceImages) {
+            contents.push({ inlineData: { mimeType: 'image/jpeg', data: ref.data } });
+            contents.push({ text: `Reference: ${ref.name}` });
         }
-    }
 
-    // Click selected images
-    for (const idx of selectedImages) {
-        await imageContainers[idx].click();
-        await sleep(50);
-    }
-    console.log(`Selected ${selectedImages.length} white images.`);
+        // Add the CAPTCHA screenshot
+        contents.push({ inlineData: { mimeType: 'image/png', data: captchaScreenshot } });
+        contents.push({ text: prompt });
 
-    // Click verify
-    await sleep(200);
-    await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const btn = buttons.find(b => b.textContent.includes('Verify'));
-        if (btn && !btn.disabled) btn.click();
-    });
-    console.log('Clicked Verify');
-    await sleep(1500);
+        console.log('Sending to Gemini for face matching...');
+        const result = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: contents,
+        });
+
+        let responseText = result.text.trim();
+        console.log(`Gemini response: ${responseText}`);
+
+        // If Gemini says none, retry with insistence that there's at least one match
+        if (responseText.toLowerCase() === 'none' || responseText.toLowerCase().includes('none')) {
+            console.log('Gemini said none, retrying with insistence...');
+
+            const retryPrompt = `You previously said "none" but there is DEFINITELY at least one match in the CAPTCHA grid.
+Look again at the 9 CAPTCHA images and compare them to the 5 reference people (Andrei, Franco, Laurent, Mark, Sunwoong).
+
+Find the image that is MOST LIKELY to be one of these people, even if you're not 100% certain.
+Consider similar facial features, face shape, glasses, beard, hair style, etc.
+
+Return ONLY the number(s) of the most likely matching image(s), separated by commas.
+You MUST return at least one number between 1-9.`;
+
+            contents.push({ text: retryPrompt });
+
+            const retryResult = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: contents,
+            });
+
+            responseText = retryResult.text.trim();
+            console.log(`Gemini retry response: ${responseText}`);
+        }
+
+        // Parse response to get image numbers
+        if (responseText.toLowerCase() === 'none') {
+            console.log('Still no matches found after retry');
+        } else {
+            const numbers = responseText.split(',')
+                .map(n => parseInt(n.trim()))
+                .filter(n => n >= 1 && n <= 9);
+            console.log(`Selecting images: ${numbers.join(', ')}`);
+
+            // Click selected images
+            const imageContainers = await page.$$('.grid.grid-cols-3 > div');
+            for (const num of numbers) {
+                if (imageContainers[num - 1]) {
+                    await imageContainers[num - 1].click();
+                    await sleep(50);
+                }
+            }
+        }
+
+        // Click verify
+        await sleep(200);
+        await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const btn = buttons.find(b => b.textContent.includes('Verify'));
+            if (btn && !btn.disabled) btn.click();
+        });
+        console.log('Clicked Verify');
+        await sleep(1500);
+    } catch (err) {
+        console.log('Gemini face matching error:', err.message);
+    }
 }
 
 /**
