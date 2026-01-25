@@ -114,11 +114,7 @@ const generateRandomPassword = () => {
 };
 
 /**
- * Fast typing function - clicks on selector then types with minimal delay
- */
-
-/**
- * If needed, vary the fast typing delay to be variable from 4-6
+ * Fast typing - clicks on selector then types with minimal delay (5ms per char)
  */
 const fastType = async (page, selector, text) => {
     await page.click(selector);
@@ -324,9 +320,8 @@ async function checkRemainingBalance(page) {
 // ============================================================================
 
 /**
- * Solves the first CAPTCHA to sign into the site
- * Solve CAPTCHA using center pixel color detection
- * Identifies logos by looking for very light (white) or very dark (black) center pixels
+ * Solve login CAPTCHA using center pixel color detection
+ * Identifies logos by checking if center pixel is very light (white) or very dark (black)
  */
 async function solveCaptcha(page) {
     console.log('Detecting CAPTCHA...');
@@ -394,274 +389,25 @@ async function solveCaptcha(page) {
     for (const num of selectedImages) {
         if (imageContainers[num - 1]) {
             await imageContainers[num - 1].click();
-            await sleep(50);
+            await sleep(20);
         }
     }
 
     // Click verify button
-    await sleep(200);
+    await sleep(100);
     await page.evaluate(() => {
         const buttons = Array.from(document.querySelectorAll('button'));
         const btn = buttons.find(b => b.textContent.includes('Verify'));
         if (btn && !btn.disabled) btn.click();
     });
     console.log('Clicked Verify button');
-    await sleep(500);
+    await sleep(200);
     return true;
 }
 
 /**
- * Solve CAPTCHA using Gemini AI with all farmed face images
- * Sends all images from captcha_faces folder for comparison
- * Now deprecated in favor of newer solution, not used in this script
- * However it is still here for reference and very performant
- */
-async function solveWhiteCaptcha(page) {
-    const hasCaptcha = await page.evaluate(() =>
-        document.body.innerText.includes("Verify You're Human")
-    );
-    if (!hasCaptcha) return;
-
-    console.log('Final CAPTCHA detected! Solving with Gemini...');
-
-    // Load POSITIVE examples (captcha_faces)
-    const facesDir = path.join(__dirname, 'captcha_faces');
-    if (!fs.existsSync(facesDir)) {
-        console.log('No captcha_faces folder found - run imgcapture.js first');
-        return;
-    }
-
-    const faceFiles = fs.readdirSync(facesDir)
-        .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
-
-    if (faceFiles.length === 0) {
-        console.log('No farmed faces found - run imgcapture.js first');
-        return;
-    }
-
-    // Load NEGATIVE examples (captcha_other)
-    const otherDir = path.join(__dirname, 'captcha_other');
-    let otherFiles = [];
-    if (fs.existsSync(otherDir)) {
-        otherFiles = fs.readdirSync(otherDir)
-            .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
-    }
-
-    console.log(`Loading ${faceFiles.length} positive + ${otherFiles.length} negative examples...`);
-
-    // Wait for CAPTCHA images to load
-    console.log('Waiting for CAPTCHA images to load...');
-    await page.waitForFunction(() => {
-        const imgs = document.querySelectorAll('.grid.grid-cols-3 > div img');
-        if (imgs.length < 9) return false;
-        return Array.from(imgs).every(img => img.complete && img.naturalWidth > 0);
-    }, { timeout: 5000 }).catch(() => {
-        console.log('Image load timeout - proceeding anyway');
-    });
-    await sleep(300);
-
-    // Save screenshot
-    const screenshotsDir = path.join(__dirname, 'screenshots');
-    if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    await page.screenshot({ path: path.join(screenshotsDir, `captcha_${timestamp}.png`) });
-    console.log('Saved CAPTCHA screenshot');
-
-    // Get all 9 CAPTCHA images
-    const imageContainers = await page.$$('.grid.grid-cols-3 > div');
-    const captchaImages = [];
-
-    for (let i = 0; i < imageContainers.length; i++) {
-        const img = await imageContainers[i].$('img');
-        if (!img) continue;
-        try {
-            const data = await img.screenshot({ encoding: 'base64' });
-            captchaImages.push({ index: i + 1, data });
-        } catch (err) { }
-    }
-    console.log(`Got ${captchaImages.length} CAPTCHA images`);
-
-    // Build POSITIVE request (captcha_faces)
-    const buildRequest = (exampleFiles, exampleDir, labelPrefix) => {
-        const contents = [];
-        contents.push({ text: `KNOWN IMAGES (${exampleFiles.length} images):` });
-        for (let i = 0; i < exampleFiles.length; i++) {
-            const file = exampleFiles[i];
-            const imgPath = path.join(exampleDir, file);
-            const data = fs.readFileSync(imgPath).toString('base64');
-            const mimeType = file.endsWith('.png') ? 'image/png' : 'image/jpeg';
-            contents.push({ inlineData: { mimeType, data } });
-            contents.push({ text: `${labelPrefix} ${i + 1}` });
-        }
-        contents.push({ text: `\nCAPTCHA GRID (9 images numbered 1-9):` });
-        for (const img of captchaImages) {
-            contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
-            contents.push({ text: `Image ${img.index}` });
-        }
-        return contents;
-    };
-
-    const prompt = `Compare the CAPTCHA images (1-9) against the KNOWN IMAGES.
-
-Your task: Find which CAPTCHA images are PIXEL-FOR-PIXEL the EXACT SAME photograph as any known image.
-
-BE EXTREMELY STRICT:
-- Must be the EXACT SAME photograph, just ROTATED and/or CROPPED
-- Same person in a DIFFERENT photo = NO MATCH
-- Similar looking scene = NO MATCH  
-- Only match if you are 100% CERTAIN it's the exact same source image
-
-For each match, you MUST describe SPECIFIC VISUAL EVIDENCE:
-- Describe the EXACT background details
-- Describe the EXACT pose (hand positions, body angle)
-- Describe any text, logos, or unique objects
-- Describe clothing details
-
-If you cannot describe specific matching details, it's NOT a match.
-
-The image may be rotated or cropped.
-
-IMPORTANT: Be conservative. It's better to miss a match than include a false positive.
-
-FINAL WARNING: SOMETIMES FAKE IMAGES REPLICATE THE REAL ONES BUT AREN'T THE SAME. BE EXTREMELY STRICT.
-
-On your FINAL LINE, put ONLY the matching numbers comma-separated.
-If no certain matches, return "none".
-
-FINAL ANSWER: 3`;
-
-    try {
-        // === 3 POSITIVE CALLS (captcha_faces) ===
-        console.log('Sending 3 POSITIVE matching calls...');
-        const positiveContents = buildRequest(faceFiles, facesDir, 'Known');
-        positiveContents.push({ text: prompt });
-
-        const geminiCallPositive = () => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: positiveContents,
-            generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } }
-        });
-
-        const [pos1, pos2, pos3] = await Promise.all([
-            geminiCallPositive().catch(e => ({ text: 'none' })),
-            geminiCallPositive().catch(e => ({ text: 'none' })),
-            geminiCallPositive().catch(e => ({ text: 'none' }))
-        ]);
-
-        // === 3 NEGATIVE CALLS (captcha_other) ===
-        let neg1 = { text: 'none' }, neg2 = { text: 'none' }, neg3 = { text: 'none' };
-        if (otherFiles.length > 0) {
-            console.log('Sending 3 NEGATIVE matching calls...');
-            const negativeContents = buildRequest(otherFiles, otherDir, 'Known');
-            negativeContents.push({ text: prompt });
-
-            const geminiCallNegative = () => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: negativeContents,
-                generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } }
-            });
-
-            [neg1, neg2, neg3] = await Promise.all([
-                geminiCallNegative().catch(e => ({ text: 'none' })),
-                geminiCallNegative().catch(e => ({ text: 'none' })),
-                geminiCallNegative().catch(e => ({ text: 'none' }))
-            ]);
-        }
-
-        // Parse responses
-        const parseResponse = (result) => {
-            const text = result.text?.trim() || '';
-            const lines = text.split('\n').filter(l => l.trim());
-            const lastLine = lines[lines.length - 1]
-                ?.replace(/\*\*/g, '')
-                ?.replace(/FINAL ANSWER:?/i, '')
-                ?.trim() || '';
-            if (lastLine.toLowerCase() === 'none') return [];
-            return [...new Set(lastLine.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= 9) || [])];
-        };
-
-        const posVotes1 = parseResponse(pos1);
-        const posVotes2 = parseResponse(pos2);
-        const posVotes3 = parseResponse(pos3);
-        const negVotes1 = parseResponse(neg1);
-        const negVotes2 = parseResponse(neg2);
-        const negVotes3 = parseResponse(neg3);
-
-        console.log(`Positive votes: [${posVotes1.join(',')}] [${posVotes2.join(',')}] [${posVotes3.join(',')}]`);
-        console.log(`Negative votes: [${negVotes1.join(',')}] [${negVotes2.join(',')}] [${negVotes3.join(',')}]`);
-
-        // Calculate scores: +1 for positive vote, -1 for negative vote
-        const scores = {};
-        for (let i = 1; i <= 9; i++) {
-            scores[i] = 0;
-            if (posVotes1.includes(i)) scores[i]++;
-            if (posVotes2.includes(i)) scores[i]++;
-            if (posVotes3.includes(i)) scores[i]++;
-            if (negVotes1.includes(i)) scores[i]--;
-            if (negVotes2.includes(i)) scores[i]--;
-            if (negVotes3.includes(i)) scores[i]--;
-        }
-
-        console.log('Scores:', Object.entries(scores).map(([n, s]) => `${n}:${s}`).join(' '));
-
-        // Score >= 2 = SELECT, Score in [-1,1] = UNSURE
-        const selectNumbers = Object.entries(scores)
-            .filter(([num, score]) => score >= 2)
-            .map(([num]) => parseInt(num));
-
-        const unsureNumbers = Object.entries(scores)
-            .filter(([num, score]) => score >= -1 && score <= 1)
-            .map(([num]) => parseInt(num));
-
-        console.log(`SELECT (score>=2): ${selectNumbers.join(', ') || 'none'}`);
-        console.log(`UNSURE (score -1 to 1): ${unsureNumbers.join(', ') || 'none'}`);
-
-        // Save unsure images
-        if (unsureNumbers.length > 0) {
-            const unsureDir = path.join(__dirname, 'captcha_unsure');
-            if (!fs.existsSync(unsureDir)) fs.mkdirSync(unsureDir, { recursive: true });
-            for (const num of unsureNumbers) {
-                const img = captchaImages.find(c => c.index === num);
-                if (img) {
-                    const filename = `unsure_${Date.now()}_${num}.png`;
-                    fs.writeFileSync(path.join(unsureDir, filename), Buffer.from(img.data, 'base64'));
-                }
-            }
-        }
-
-        // Extract matched positive image numbers for tally
-        const allPosResponses = [pos1.text || '', pos2.text || '', pos3.text || ''].join(' ');
-        const knownMatches = allPosResponses.match(/Known\s*(?:Image\s*)?(\d+)/gi) || [];
-        const matchedKnownNumbers = [...new Set(knownMatches.map(m => parseInt(m.match(/\d+/)[0])))];
-
-        // Click selected images
-        for (const num of selectNumbers) {
-            if (imageContainers[num - 1]) {
-                await imageContainers[num - 1].click();
-                await sleep(50);
-            }
-        }
-
-        global.lastMatchedKnownImages = matchedKnownNumbers;
-    } catch (err) {
-        console.log('Gemini error:', err.message);
-        global.lastMatchedKnownImages = [];
-    }
-
-    // Click verify
-    await sleep(200);
-    await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const btn = buttons.find(b => b.textContent.includes('Verify'));
-        if (btn && !btn.disabled) btn.click();
-    });
-    console.log('Clicked Verify');
-    await sleep(1500);
-}
-
-/**
- * Solve CAPTCHA using Gemini AI vision
- * Note: The prompt is misleading - it says "sun" but actually wants humans
+ * Solve payment CAPTCHA using Gemini AI vision
+ * Sends screenshot of 3x3 grid to Gemini to identify images containing humans
  */
 async function solveGeminiCaptcha(newPage) {
     const hasCaptcha = await newPage.evaluate(() =>
@@ -923,9 +669,9 @@ async function dropClasses(options = {}) {
             await sleep(200);
         }
         await page.evaluate(() => document.querySelector('button[type="submit"]')?.click());
-        await sleep(2500);
+        await sleep(200);
         await page.evaluate(() => document.querySelector('button[type="submit"]')?.click());
-        await sleep(500);
+        await sleep(200);
         await solveCaptcha(page);
 
         // ====================================================================
@@ -1070,7 +816,7 @@ async function dropClasses(options = {}) {
             buttons.find(b => b.textContent.includes('Continue to Payment') && !b.disabled)?.click();
         });
         console.log('Clicked Continue to Payment');
-        await sleep(1000);
+        await sleep(250);
 
         // Handle the moving "Slide to confirm" modal
         console.log('Looking for slide to confirm modal...');
@@ -1146,7 +892,7 @@ async function dropClasses(options = {}) {
 
         for (let paymentAttempt = 1; paymentAttempt <= MAX_PAYMENT_RETRIES && !paymentVerified; paymentAttempt++) {
             if (paymentAttempt > 1) {
-                console.log(`\n🔄 PAYMENT RETRY (Attempt ${paymentAttempt}/${MAX_PAYMENT_RETRIES})`);
+                console.log(`\nPAYMENT RETRY (Attempt ${paymentAttempt}/${MAX_PAYMENT_RETRIES})`);
 
                 // Close any leftover payment tabs
                 await closePaymentTabs(browser, page);
@@ -1289,6 +1035,7 @@ async function dropClasses(options = {}) {
                             break;
                         }
                     }
+
                     await newPage.evaluate(() => {
                         const buttons = Array.from(document.querySelectorAll('button'));
                         buttons.find(b => b.textContent.includes('Save Card'))?.click();
@@ -1335,8 +1082,7 @@ async function dropClasses(options = {}) {
                             buttons.find(b => b.textContent.includes('Continue'))?.click();
                         });
                     }
-                    await sleep(1500);
-
+                    await sleep(250);
 
                     await bezierMoveAndClick(newPage, 'Process Payment');
                     console.log('Clicked Process Payment');
