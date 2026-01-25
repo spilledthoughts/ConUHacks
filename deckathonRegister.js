@@ -250,7 +250,7 @@ async function solveWhiteCaptcha(page) {
 
     console.log('Final CAPTCHA detected! Solving with Gemini...');
 
-    // Load all farmed face images from captcha_faces folder
+    // Load POSITIVE examples (captcha_faces)
     const facesDir = path.join(__dirname, 'captcha_faces');
     if (!fs.existsSync(facesDir)) {
         console.log('No captcha_faces folder found - run imgcapture.js first');
@@ -265,9 +265,17 @@ async function solveWhiteCaptcha(page) {
         return;
     }
 
-    console.log(`Loading ${faceFiles.length} farmed face images...`);
+    // Load NEGATIVE examples (captcha_other)
+    const otherDir = path.join(__dirname, 'captcha_other');
+    let otherFiles = [];
+    if (fs.existsSync(otherDir)) {
+        otherFiles = fs.readdirSync(otherDir)
+            .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
+    }
 
-    // Wait for all CAPTCHA images to fully load
+    console.log(`Loading ${faceFiles.length} positive + ${otherFiles.length} negative examples...`);
+
+    // Wait for CAPTCHA images to load
     console.log('Waiting for CAPTCHA images to load...');
     await page.waitForFunction(() => {
         const imgs = document.querySelectorAll('.grid.grid-cols-3 > div img');
@@ -276,9 +284,9 @@ async function solveWhiteCaptcha(page) {
     }, { timeout: 5000 }).catch(() => {
         console.log('Image load timeout - proceeding anyway');
     });
-    await sleep(300); // Extra buffer after load
+    await sleep(300);
 
-    // Save screenshot to screenshots folder AFTER images loaded
+    // Save screenshot
     const screenshotsDir = path.join(__dirname, 'screenshots');
     if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -299,28 +307,26 @@ async function solveWhiteCaptcha(page) {
     }
     console.log(`Got ${captchaImages.length} CAPTCHA images`);
 
-    // Build Gemini request
-    const contents = [];
+    // Build POSITIVE request (captcha_faces)
+    const buildRequest = (exampleFiles, exampleDir, labelPrefix) => {
+        const contents = [];
+        contents.push({ text: `KNOWN IMAGES (${exampleFiles.length} images):` });
+        for (let i = 0; i < exampleFiles.length; i++) {
+            const file = exampleFiles[i];
+            const imgPath = path.join(exampleDir, file);
+            const data = fs.readFileSync(imgPath).toString('base64');
+            const mimeType = file.endsWith('.png') ? 'image/png' : 'image/jpeg';
+            contents.push({ inlineData: { mimeType, data } });
+            contents.push({ text: `${labelPrefix} ${i + 1}` });
+        }
+        contents.push({ text: `\nCAPTCHA GRID (9 images numbered 1-9):` });
+        for (const img of captchaImages) {
+            contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
+            contents.push({ text: `Image ${img.index}` });
+        }
+        return contents;
+    };
 
-    // Add all farmed faces first WITH LABELS
-    contents.push({ text: `KNOWN IMAGES (${faceFiles.length} images numbered 1-${faceFiles.length}):` });
-    for (let i = 0; i < faceFiles.length; i++) {
-        const file = faceFiles[i];
-        const imgPath = path.join(facesDir, file);
-        const data = fs.readFileSync(imgPath).toString('base64');
-        const mimeType = file.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        contents.push({ inlineData: { mimeType, data } });
-        contents.push({ text: `Known ${i + 1}` });
-    }
-
-    // Add CAPTCHA images
-    contents.push({ text: `\nCAPTCHA GRID (9 images numbered 1-9):` });
-    for (const img of captchaImages) {
-        contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
-        contents.push({ text: `Image ${img.index}` });
-    }
-
-    // Prompt
     const prompt = `Compare the CAPTCHA images (1-9) against the KNOWN IMAGES.
 
 Your task: Find which CAPTCHA images are PIXEL-FOR-PIXEL the EXACT SAME photograph as any known image.
@@ -331,51 +337,64 @@ BE EXTREMELY STRICT:
 - Similar looking scene = NO MATCH  
 - Only match if you are 100% CERTAIN it's the exact same source image
 
-For each match, you MUST describe SPECIFIC VISUAL EVIDENCE proving it's the same image:
-- Describe the EXACT background details (what objects, textures, colors are behind the person?)
-- Describe the EXACT pose (hand positions, body angle, facial expression)
-- Describe any text, logos, or unique objects visible
-- Describe clothing details and accessories
+For each match, you MUST describe SPECIFIC VISUAL EVIDENCE:
+- Describe the EXACT background details
+- Describe the EXACT pose (hand positions, body angle)
+- Describe any text, logos, or unique objects
+- Describe clothing details
 
 If you cannot describe specific matching details, it's NOT a match.
 
-The image may be rotated 90°, 180°, 270°, or any angle. It may also be cropped.
+The image may be rotated or cropped.
 
-IMPORTANT: Be conservative. It's better to miss a match than include a false positive. For example, if the image seems to be the same person wearing the same thing, but one has more of the hoodie with white text, that one is WRONG.
+IMPORTANT: Be conservative. It's better to miss a match than include a false positive.
 
-Example:
-Image 3 matches Known Image 15: Both show a man in a RED HOODIE with "SUPREME" logo, standing in front of a WHITE BRICK WALL with a green plant in bottom left corner. Same exact hand position making peace sign.
+FINAL WARNING: SOMETIMES FAKE IMAGES REPLICATE THE REAL ONES BUT AREN'T THE SAME. BE EXTREMELY STRICT.
 
 On your FINAL LINE, put ONLY the matching numbers comma-separated.
 If no certain matches, return "none".
 
-FINAL WARNING: SOMETIMES THE FAKE IMAGES WILL REPLICATE WHAT THE REAL IMAGES DO BUT STILL AREN'T THE SAME IMAGE. BE EXTREMELY STRICT.
-
 FINAL ANSWER: 3`;
 
-    contents.push({ text: prompt });
-
     try {
-        console.log('Sending 3 parallel Gemini calls for majority voting...');
+        // === 3 POSITIVE CALLS (captcha_faces) ===
+        console.log('Sending 3 POSITIVE matching calls...');
+        const positiveContents = buildRequest(faceFiles, facesDir, 'Known');
+        positiveContents.push({ text: prompt });
 
-        // Run 3 parallel calls
-        const geminiCall = () => ai.models.generateContent({
+        const geminiCallPositive = () => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: contents,
-            generationConfig: {
-                thinkingConfig: {
-                    thinkingLevel: 'HIGH'
-                }
-            }
+            contents: positiveContents,
+            generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } }
         });
 
-        const [result1, result2, result3] = await Promise.all([
-            geminiCall().catch(e => ({ text: 'none' })),
-            geminiCall().catch(e => ({ text: 'none' })),
-            geminiCall().catch(e => ({ text: 'none' }))
+        const [pos1, pos2, pos3] = await Promise.all([
+            geminiCallPositive().catch(e => ({ text: 'none' })),
+            geminiCallPositive().catch(e => ({ text: 'none' })),
+            geminiCallPositive().catch(e => ({ text: 'none' }))
         ]);
 
-        // Parse each response for numbers
+        // === 3 NEGATIVE CALLS (captcha_other) ===
+        let neg1 = { text: 'none' }, neg2 = { text: 'none' }, neg3 = { text: 'none' };
+        if (otherFiles.length > 0) {
+            console.log('Sending 3 NEGATIVE matching calls...');
+            const negativeContents = buildRequest(otherFiles, otherDir, 'Known');
+            negativeContents.push({ text: prompt });
+
+            const geminiCallNegative = () => ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: negativeContents,
+                generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } }
+            });
+
+            [neg1, neg2, neg3] = await Promise.all([
+                geminiCallNegative().catch(e => ({ text: 'none' })),
+                geminiCallNegative().catch(e => ({ text: 'none' })),
+                geminiCallNegative().catch(e => ({ text: 'none' }))
+            ]);
+        }
+
+        // Parse responses
         const parseResponse = (result) => {
             const text = result.text?.trim() || '';
             const lines = text.split('\n').filter(l => l.trim());
@@ -387,44 +406,68 @@ FINAL ANSWER: 3`;
             return [...new Set(lastLine.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= 9) || [])];
         };
 
-        const votes1 = parseResponse(result1);
-        const votes2 = parseResponse(result2);
-        const votes3 = parseResponse(result3);
+        const posVotes1 = parseResponse(pos1);
+        const posVotes2 = parseResponse(pos2);
+        const posVotes3 = parseResponse(pos3);
+        const negVotes1 = parseResponse(neg1);
+        const negVotes2 = parseResponse(neg2);
+        const negVotes3 = parseResponse(neg3);
 
-        console.log(`Vote 1: ${votes1.join(',') || 'none'}`);
-        console.log(`Vote 2: ${votes2.join(',') || 'none'}`);
-        console.log(`Vote 3: ${votes3.join(',') || 'none'}`);
+        console.log(`Positive votes: [${posVotes1.join(',')}] [${posVotes2.join(',')}] [${posVotes3.join(',')}]`);
+        console.log(`Negative votes: [${negVotes1.join(',')}] [${negVotes2.join(',')}] [${negVotes3.join(',')}]`);
 
-        // Count votes for each number 1-9
-        const voteCount = {};
+        // Calculate scores: +1 for positive vote, -1 for negative vote
+        const scores = {};
         for (let i = 1; i <= 9; i++) {
-            voteCount[i] = 0;
-            if (votes1.includes(i)) voteCount[i]++;
-            if (votes2.includes(i)) voteCount[i]++;
-            if (votes3.includes(i)) voteCount[i]++;
+            scores[i] = 0;
+            if (posVotes1.includes(i)) scores[i]++;
+            if (posVotes2.includes(i)) scores[i]++;
+            if (posVotes3.includes(i)) scores[i]++;
+            if (negVotes1.includes(i)) scores[i]--;
+            if (negVotes2.includes(i)) scores[i]--;
+            if (negVotes3.includes(i)) scores[i]--;
         }
 
-        // Majority = 2 or more votes
-        const majorityNumbers = Object.entries(voteCount)
-            .filter(([num, count]) => count >= 2)
-            .map(([num, count]) => parseInt(num));
+        console.log('Scores:', Object.entries(scores).map(([n, s]) => `${n}:${s}`).join(' '));
 
-        console.log(`Majority consensus: ${majorityNumbers.join(', ') || 'none'}`);
+        // Score >= 2 = SELECT, Score in [-1,1] = UNSURE
+        const selectNumbers = Object.entries(scores)
+            .filter(([num, score]) => score >= 2)
+            .map(([num]) => parseInt(num));
 
-        // Extract matched Known image numbers from all responses
-        const allResponses = [result1.text || '', result2.text || '', result3.text || ''].join(' ');
-        const knownMatches = allResponses.match(/Known\s*(?:Image\s*)?(\d+)/gi) || [];
+        const unsureNumbers = Object.entries(scores)
+            .filter(([num, score]) => score >= -1 && score <= 1)
+            .map(([num]) => parseInt(num));
+
+        console.log(`SELECT (score>=2): ${selectNumbers.join(', ') || 'none'}`);
+        console.log(`UNSURE (score -1 to 1): ${unsureNumbers.join(', ') || 'none'}`);
+
+        // Save unsure images
+        if (unsureNumbers.length > 0) {
+            const unsureDir = path.join(__dirname, 'captcha_unsure');
+            if (!fs.existsSync(unsureDir)) fs.mkdirSync(unsureDir, { recursive: true });
+            for (const num of unsureNumbers) {
+                const img = captchaImages.find(c => c.index === num);
+                if (img) {
+                    const filename = `unsure_${Date.now()}_${num}.png`;
+                    fs.writeFileSync(path.join(unsureDir, filename), Buffer.from(img.data, 'base64'));
+                }
+            }
+        }
+
+        // Extract matched positive image numbers for tally
+        const allPosResponses = [pos1.text || '', pos2.text || '', pos3.text || ''].join(' ');
+        const knownMatches = allPosResponses.match(/Known\s*(?:Image\s*)?(\d+)/gi) || [];
         const matchedKnownNumbers = [...new Set(knownMatches.map(m => parseInt(m.match(/\d+/)[0])))];
 
-        // Click majority-agreed images
-        for (const num of majorityNumbers) {
+        // Click selected images
+        for (const num of selectNumbers) {
             if (imageContainers[num - 1]) {
                 await imageContainers[num - 1].click();
                 await sleep(50);
             }
         }
 
-        // Store matched known images for tracking
         global.lastMatchedKnownImages = matchedKnownNumbers;
     } catch (err) {
         console.log('Gemini error:', err.message);
@@ -590,10 +633,22 @@ Return ONLY the numbers, separated by commas. Example: 1,3,5`;
         const responseText = result.text.trim();
         console.log(`Gemini response: ${responseText}`);
 
-        // Parse response to get image numbers
-        const numbers = responseText.split(',')
-            .map(n => parseInt(n.trim()))
-            .filter(n => n >= 1 && n <= 9);
+        // Parse response - get ALL numbers 1-9 from the response
+        // Look at the last line first (most reliable), then fall back to all lines
+        const lines = responseText.split('\n').filter(l => l.trim());
+        const lastLine = lines[lines.length - 1] || '';
+
+        // Try to get numbers from last line first
+        let numbers = lastLine.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= 9) || [];
+
+        // If last line had no valid numbers, scan entire response for comma-separated list
+        if (numbers.length === 0) {
+            const matches = responseText.match(/\b([1-9])\b/g);
+            if (matches) {
+                numbers = [...new Set(matches.map(n => parseInt(n)))];
+            }
+        }
+
         console.log(`Selecting images: ${numbers.join(', ')}`);
 
         // Click selected images
@@ -628,6 +683,7 @@ async function registerOnDeckathon(options = {}) {
     let browser;
 
     try {
+        let isSuccess = false; // Initialize at top level
         const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
         console.log(`${prefix}Starting Deckathon Registration Script${farmMode ? ' (FARM MODE)' : ''}\n`);
 
@@ -660,48 +716,41 @@ async function registerOnDeckathon(options = {}) {
         const page = connection.page;
 
         // ====================================================================
-        // STEP 2: Navigate to registration
+        // STEP 2: Register via API (bypass registration form/CAPTCHA)
         // ====================================================================
-        console.log('Going to login...');
-        await page.goto(CONFIG.LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        await sleep(200);
+        console.log('Registering via API...');
 
-        console.log('Clicking register link...');
-        await sleep(500);
-        await page.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('a'));
-            const registerLink = links.find(link =>
-                link.href.includes('/register') ||
-                link.textContent.toLowerCase().includes('create')
-            );
-            if (registerLink) registerLink.click();
+        // Get form_prep_token
+        const prepResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/form/prepare/public/register');
+        const prepData = await prepResponse.json();
+        const formPrepToken = prepData.form_prep_token || prepData.token || '';
+        console.log('Got form_prep_token, waiting...');
+
+        // Wait to simulate human form filling time
+        await sleep(10000);
+
+        // Register user via API
+        const registerResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: username,
+                email: email,
+                password: password,
+                full_name: fullName,
+                form_prep_token: formPrepToken,
+                mouse_movement_count: 150 + Math.floor(Math.random() * 100),
+                mouse_total_distance: 3000 + Math.floor(Math.random() * 2000),
+                recaptcha_token: ''
+            })
         });
 
-        // Wait for register page with retry fallback
-        try {
-            await page.waitForSelector('#username', { timeout: 5000 });
-        } catch (e) {
-            console.log('Retry clicking register link...');
-            await page.goto(CONFIG.REGISTER_URL, { waitUntil: 'domcontentloaded', timeout: 10000 });
-            await page.waitForSelector('#username', { timeout: 10000 });
+        const registerData = await registerResponse.json();
+        if (registerResponse.ok) {
+            console.log('Registration successful via API');
+        } else {
+            console.log('Registration response:', registerData);
         }
-        console.log('On register page');
-
-        // ====================================================================
-        // STEP 3: Fill and submit registration form
-        // ====================================================================
-        console.log('Filling registration form...');
-        await fastType(page, '#username', username);
-        await fastType(page, '#fullName', fullName);
-        await fastType(page, '#email', email);
-        await fastType(page, '#password', password);
-        await fastType(page, '#confirmPassword', password);
-
-        console.log('Submitting registration...');
-        await page.evaluate(() => document.querySelector('button[type="submit"]')?.click());
-        await sleep(500);
-        await solveCaptcha(page);
-        await sleep(500);
 
         // ====================================================================
         // STEP 4: Login with new credentials
@@ -711,11 +760,47 @@ async function registerOnDeckathon(options = {}) {
         await page.waitForSelector('#netname', { timeout: 10000 });
         console.log('On login page');
 
+        // Human-like login with mouse movement
         console.log('Filling login form...');
-        await fastType(page, '#netname', username);
-        await fastType(page, '#password', password);
+
+        // Move mouse to username field
+        const usernameField = await page.$('#netname');
+        const userBox = await usernameField.boundingBox();
+        await page.mouse.move(userBox.x + userBox.width / 2, userBox.y + userBox.height / 2, { steps: 10 });
+        await sleep(100);
+        await usernameField.click();
+        await sleep(200);
+
+        // Type username with human delay
+        for (const char of username) {
+            await page.keyboard.type(char, { delay: 30 + Math.random() * 50 });
+        }
+        await sleep(300);
+
+        // Move mouse to password field
+        const passwordField = await page.$('#password');
+        const passBox = await passwordField.boundingBox();
+        await page.mouse.move(passBox.x + passBox.width / 2, passBox.y + passBox.height / 2, { steps: 10 });
+        await sleep(100);
+        await passwordField.click();
+        await sleep(200);
+
+        // Type password with human delay
+        for (const char of password) {
+            await page.keyboard.type(char, { delay: 30 + Math.random() * 50 });
+        }
+        await sleep(400);
 
         console.log('Submitting login...');
+        // Move mouse to submit button
+        const submitBtn = await page.$('button[type="submit"]');
+        if (submitBtn) {
+            const btnBox = await submitBtn.boundingBox();
+            await page.mouse.move(btnBox.x + btnBox.width / 2, btnBox.y + btnBox.height / 2, { steps: 10 });
+            await sleep(200);
+        }
+        await page.evaluate(() => document.querySelector('button[type="submit"]')?.click());
+        await sleep(2500);
         await page.evaluate(() => document.querySelector('button[type="submit"]')?.click());
         await sleep(500);
         await solveCaptcha(page);
@@ -862,7 +947,48 @@ async function registerOnDeckathon(options = {}) {
             buttons.find(b => b.textContent.includes('Continue to Payment') && !b.disabled)?.click();
         });
         console.log('Clicked Continue to Payment');
-        await sleep(500);
+        await sleep(1000);
+
+        // Handle the moving "Slide to confirm" modal
+        console.log('Looking for slide to confirm modal...');
+        const sliderHandle = await page.$('.slider-handle');
+        if (sliderHandle) {
+            console.log('Found slider - dragging...');
+            // Try multiple times since the modal moves
+            for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                    const sliderContainer = await page.$('.slider-container');
+                    if (sliderContainer) {
+                        const containerBox = await sliderContainer.boundingBox();
+                        const handleBox = await sliderHandle.boundingBox();
+                        if (containerBox && handleBox) {
+                            // Start from handle center
+                            const startX = handleBox.x + handleBox.width / 2;
+                            const startY = handleBox.y + handleBox.height / 2;
+                            // End at right side of container
+                            const endX = containerBox.x + containerBox.width - 10;
+
+                            await page.mouse.move(startX, startY);
+                            await page.mouse.down();
+                            await sleep(50);
+                            // Drag in steps
+                            for (let i = 0; i < 10; i++) {
+                                const x = startX + ((endX - startX) * (i + 1)) / 10;
+                                await page.mouse.move(x, startY, { steps: 2 });
+                                await sleep(20);
+                            }
+                            await page.mouse.up();
+                            console.log('Slider dragged');
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.log(`Slider attempt ${attempt + 1} failed, retrying...`);
+                    await sleep(200);
+                }
+            }
+            await sleep(1000);
+        }
 
         // Solve number sequence verification (e.g., "1 -> 3 -> 8")
         const sequence = await page.evaluate(() => {
@@ -954,31 +1080,125 @@ async function registerOnDeckathon(options = {}) {
                 console.log('Switched to new tab:', await newPage.url());
                 await sleep(1000);
 
-                // Fill fake card details
+                // Fill fake card details with realistic mouse and typing
                 console.log('Filling card info...');
-                await newPage.type('#card-number', '4532 1234 5678 9012', { delay: 5 });
-                await newPage.type('#cvv', '123', { delay: 5 });
-                await newPage.type('#expiry', '12/28', { delay: 5 });
 
+                // Move to card number field and type slowly
+                const cardNumField = await newPage.$('#card-number');
+                if (cardNumField) {
+                    const box = await cardNumField.boundingBox();
+                    await newPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+                    await sleep(100);
+                    await cardNumField.click();
+                    await sleep(150);
+                    for (const char of '4532 1234 5678 9012') {
+                        await newPage.keyboard.type(char, { delay: 40 + Math.random() * 30 });
+                    }
+                }
+                await sleep(200);
+
+                // Move to CVV field
+                const cvvField = await newPage.$('#cvv');
+                if (cvvField) {
+                    const box = await cvvField.boundingBox();
+                    await newPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+                    await sleep(100);
+                    await cvvField.click();
+                    await sleep(150);
+                    for (const char of '123') {
+                        await newPage.keyboard.type(char, { delay: 40 + Math.random() * 30 });
+                    }
+                }
+                await sleep(200);
+
+                // Move to expiry field
+                const expiryField = await newPage.$('#expiry');
+                if (expiryField) {
+                    const box = await expiryField.boundingBox();
+                    await newPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+                    await sleep(100);
+                    await expiryField.click();
+                    await sleep(150);
+                    for (const char of '12/28') {
+                        await newPage.keyboard.type(char, { delay: 40 + Math.random() * 30 });
+                    }
+                }
+                await sleep(300);
+
+                // Move to Save Card button and click
+                const saveBtn = await newPage.$('button');
+                const allBtns = await newPage.$$('button');
+                for (const btn of allBtns) {
+                    const text = await newPage.evaluate(el => el.textContent, btn);
+                    if (text.includes('Save Card')) {
+                        const box = await btn.boundingBox();
+                        await newPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+                        await sleep(150);
+                        break;
+                    }
+                }
                 await newPage.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('button'));
                     buttons.find(b => b.textContent.includes('Save Card'))?.click();
                 });
                 console.log('Clicked Save Card');
-                await sleep(800);
 
+                // Wait 6s with small mouse movements
+                for (let i = 0; i < 6; i++) {
+                    await sleep(1000);
+                    await newPage.mouse.move(
+                        400 + Math.random() * 200,
+                        300 + Math.random() * 100,
+                        { steps: 5 }
+                    );
+                }
+
+                // Click Save Card again
                 await newPage.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.trim() === 'Continue' && !b.disabled)?.click();
+                    buttons.find(b => b.textContent.includes('Save Card'))?.click();
                 });
-                console.log('Clicked Continue');
-                await sleep(800);
+                console.log('Clicked Save Card again');
+                await sleep(300);
+
+                // Click Continue with retry
+                console.log('Looking for Continue button...');
+                const continueClicked = await newPage.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const btn = buttons.find(b => b.textContent.includes('Continue') && !b.disabled);
+                    if (btn) {
+                        btn.click();
+                        return true;
+                    }
+                    return false;
+                });
+
+                if (continueClicked) {
+                    console.log('Clicked Continue');
+                } else {
+                    console.log('Continue button not found, trying again...');
+                    await sleep(300);
+                    await newPage.evaluate(() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        buttons.find(b => b.textContent.includes('Continue'))?.click();
+                    });
+                }
+                await sleep(1500);
+
 
                 await newPage.evaluate(() => {
                     const buttons = Array.from(document.querySelectorAll('button'));
                     buttons.find(b => b.textContent.includes('Process Payment') && !b.disabled)?.click();
                 });
                 console.log('Clicked Process Payment');
+                await sleep(7600);
+
+                // Click Process Payment again
+                await newPage.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    buttons.find(b => b.textContent.includes('Process Payment') && !b.disabled)?.click();
+                });
+                console.log('Clicked Process Payment again');
                 await sleep(1000);
 
                 // Solve payment CAPTCHA with Gemini
@@ -1035,6 +1255,50 @@ async function registerOnDeckathon(options = {}) {
                 // Natural mouse movement (anti-bot bypass)
                 await naturalMouseMove(page);
 
+                // === ANTI-BOT: Wild mouse movements for 2 seconds ===
+                console.log('Moving mouse wildly...');
+                const startTime = Date.now();
+                while (Date.now() - startTime < 2000) {
+                    await page.mouse.move(
+                        100 + Math.random() * 1600,
+                        100 + Math.random() * 800,
+                        { steps: 3 }
+                    );
+                    await sleep(50);
+                }
+
+                // Click "Other (please specify)" and type random letters
+                console.log('Filling Other field...');
+                await page.evaluate(() => {
+                    const radios = document.querySelectorAll('input[type="radio"]');
+                    for (const radio of radios) {
+                        if (radio.value.includes('Other') || radio.nextSibling?.textContent?.includes('Other')) {
+                            radio.click();
+                            break;
+                        }
+                    }
+                });
+                await sleep(300);
+
+                // Type random letters in the specify field
+                const otherInput = await page.$('input[placeholder*="specify"], input[placeholder*="Please"], textarea');
+                if (otherInput) {
+                    await otherInput.click();
+                    const randomText = Array.from({ length: 50 }, () =>
+                        String.fromCharCode(97 + Math.floor(Math.random() * 26))
+                    ).join('');
+                    await otherInput.type(randomText, { delay: 10 });
+                }
+
+                // Open blank tab, wait 11s, return
+                console.log('Opening blank tab...');
+                const blankPage = await browser.newPage();
+                await blankPage.goto('about:blank');
+                await sleep(11000);
+                await blankPage.close();
+                await page.bringToFront();
+                console.log('Returned to main tab');
+
                 // Click Next button
                 console.log('Looking for Next button...');
                 const nextBtn = await page.$('button.bg-primary-600');
@@ -1071,49 +1335,86 @@ async function registerOnDeckathon(options = {}) {
                 console.log('Clicked Confirm Dropout');
                 await sleep(1000);
 
-                // Solve or farm CAPTCHA depending on mode
+                // Solve or farm CAPTCHA depending on mode - WITH RETRY LOOP
                 if (farmMode) {
                     const newFaces = await farmFaceCaptcha(page);
                     console.log(`Farming complete. New faces saved: ${newFaces}`);
                 } else {
-                    await solveWhiteCaptcha(page);
-                    console.log('Student Dropout complete');
+                    const MAX_CAPTCHA_RETRIES = 5;
+                    let captchaAttempt = 0;
+
+                    while (captchaAttempt < MAX_CAPTCHA_RETRIES && !isSuccess) {
+                        captchaAttempt++;
+                        console.log(`\n=== CAPTCHA Attempt ${captchaAttempt}/${MAX_CAPTCHA_RETRIES} ===`);
+
+                        await solveWhiteCaptcha(page);
+                        console.log('Student Dropout complete');
+
+                        // Check for success
+                        await sleep(3000);
+                        const pageText = await page.evaluate(() => document.body.innerText);
+                        const captchaSuccess = pageText.includes('Congratulations') || pageText.includes('🎓') || pageText.includes('successfully');
+                        isSuccess = captchaSuccess;
+
+                        if (captchaSuccess) {
+                            console.log('✅ SUCCESS - Congratulations message found!');
+
+                            // Track which known images led to success
+                            const matchedKnowns = global.lastMatchedKnownImages || [];
+                            if (matchedKnowns.length > 0) {
+                                console.log(`Matched Known Images: ${matchedKnowns.join(', ')}`);
+
+                                // Update tally file
+                                const tallyPath = path.join(__dirname, 'data', 'captcha_success_tally.json');
+                                let tally = {};
+                                if (fs.existsSync(tallyPath)) {
+                                    tally = JSON.parse(fs.readFileSync(tallyPath, 'utf8'));
+                                }
+                                for (const num of matchedKnowns) {
+                                    const key = `face_${String(num).padStart(2, '0')}`;
+                                    tally[key] = (tally[key] || 0) + 1;
+                                }
+                                // Sort by face number ascending
+                                const sortedTally = Object.keys(tally)
+                                    .sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)))
+                                    .reduce((obj, key) => { obj[key] = tally[key]; return obj; }, {});
+                                fs.writeFileSync(tallyPath, JSON.stringify(sortedTally, null, 2));
+                                console.log(`Updated tally: ${tallyPath}`);
+                            }
+                        } else if (captchaAttempt < MAX_CAPTCHA_RETRIES) {
+                            console.log(`❌ CAPTCHA failed, retrying... (${captchaAttempt}/${MAX_CAPTCHA_RETRIES})`);
+
+                            // Redo full flow: Next -> checkbox -> Confirm Dropout
+                            // Click Next button
+                            await page.evaluate(() => {
+                                const buttons = Array.from(document.querySelectorAll('button'));
+                                const nextBtn = buttons.find(b => b.textContent.includes('Next'));
+                                if (nextBtn && !nextBtn.disabled) nextBtn.click();
+                            });
+                            await sleep(1000);
+
+                            // Check iframe checkbox
+                            const iframeHandle = await page.$('iframe');
+                            if (iframeHandle) {
+                                const frame = await iframeHandle.contentFrame();
+                                if (frame) {
+                                    await frame.evaluate(() => document.querySelector('#final-agree')?.click());
+                                }
+                            }
+                            await sleep(300);
+
+                            // Click Confirm Dropout
+                            await page.evaluate(() => {
+                                const buttons = Array.from(document.querySelectorAll('button'));
+                                buttons.find(b => b.textContent.includes('Confirm Dropout'))?.click();
+                            });
+                            await sleep(1500);
+                        } else {
+                            console.log('❌ FAILED - Max retries reached');
+                        }
+                    }
                 }
             }
-        }
-
-        // Check for success message after final CAPTCHA
-        await sleep(3000);
-        const pageText = await page.evaluate(() => document.body.innerText);
-        const isSuccess = pageText.includes('Congratulations') || pageText.includes('🎓') || pageText.includes('successfully');
-
-        if (isSuccess) {
-            console.log('✅ SUCCESS - Congratulations message found!');
-
-            // Track which known images led to success
-            const matchedKnowns = global.lastMatchedKnownImages || [];
-            if (matchedKnowns.length > 0) {
-                console.log(`Matched Known Images: ${matchedKnowns.join(', ')}`);
-
-                // Update tally file
-                const tallyPath = path.join(__dirname, 'data', 'captcha_success_tally.json');
-                let tally = {};
-                if (fs.existsSync(tallyPath)) {
-                    tally = JSON.parse(fs.readFileSync(tallyPath, 'utf8'));
-                }
-                for (const num of matchedKnowns) {
-                    const key = `face_${String(num).padStart(2, '0')}`;
-                    tally[key] = (tally[key] || 0) + 1;
-                }
-                // Sort by face number ascending
-                const sortedTally = Object.keys(tally)
-                    .sort((a, b) => parseInt(a.match(/\d+/)) - parseInt(b.match(/\d+/)))
-                    .reduce((obj, key) => { obj[key] = tally[key]; return obj; }, {});
-                fs.writeFileSync(tallyPath, JSON.stringify(sortedTally, null, 2));
-                console.log(`Updated tally: ${tallyPath}`);
-            }
-        } else {
-            console.log('❌ FAILED - No success message found');
         }
 
         // ====================================================================
