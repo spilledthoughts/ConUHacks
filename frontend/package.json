@@ -48,7 +48,6 @@
                 "filter": [
                     "deckathonRegister.js",
                     ".env",
-                    "package.json",
                     "node_modules/**/*",
                     "captcha_faces/**/*",
                     "captcha_other/**/*",
