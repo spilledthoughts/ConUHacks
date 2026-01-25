@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Font?>
+
+<VBox xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="com.deckathon.MainController"
+      styleClass="root-container" spacing="0">
+    
+    <!-- Header -->
+    <HBox styleClass="header" alignment="CENTER_LEFT" spacing="15">
+        <padding><Insets top="20" right="25" bottom="20" left="25"/></padding>
+        <Label text="🎮" styleClass="header-icon"/>
+        <VBox spacing="2">
+            <Label text="Deckathon Automation" styleClass="header-title"/>
+            <Label text="Automated registration and dropout" styleClass="header-subtitle"/>
+        </VBox>
+    </HBox>
+    
+    <!-- Main content -->
+    <VBox styleClass="content" spacing="20" VBox.vgrow="ALWAYS">
+        <padding><Insets top="25" right="25" bottom="25" left="25"/></padding>
+        
+        <!-- Mode Selection -->
+        <VBox styleClass="section" spacing="12">
+            <Label text="Operation Mode" styleClass="section-title"/>
+            <HBox spacing="25">
+                <RadioButton fx:id="createAccountRadio" text="Create New Account" 
+                             styleClass="mode-radio" selected="true">
+                    <toggleGroup><ToggleGroup fx:id="modeGroup"/></toggleGroup>
+                </RadioButton>
+                <RadioButton fx:id="dropoutRadio" text="Dropout (Existing Account)" 
+                             styleClass="mode-radio">
+                    <toggleGroup><fx:reference source="modeGroup"/></toggleGroup>
+                </RadioButton>
+            </HBox>
+        </VBox>
+        
+        <!-- Credentials (for Dropout mode) -->
+        <VBox fx:id="credentialsBox" styleClass="section credentials-section" spacing="12">
+            <Label text="Account Credentials" styleClass="section-title"/>
+            <HBox spacing="15" alignment="CENTER_LEFT">
+                <Label text="Netname:" styleClass="field-label" minWidth="80"/>
+                <TextField fx:id="netnameField" promptText="Enter netname" 
+                           styleClass="input-field" HBox.hgrow="ALWAYS"/>
+            </HBox>
+            <HBox spacing="15" alignment="CENTER_LEFT">
+                <Label text="Password:" styleClass="field-label" minWidth="80"/>
+                <PasswordField fx:id="passwordField" promptText="Enter password" 
+                               styleClass="input-field" HBox.hgrow="ALWAYS"/>
+            </HBox>
+        </VBox>
+        
+        <!-- API Key Options -->
+        <VBox styleClass="section" spacing="12">
+            <Label text="Gemini API Key" styleClass="section-title"/>
+            <HBox spacing="25">
+                <RadioButton fx:id="builtinApiKeyRadio" text="Use Built-in" 
+                             styleClass="option-radio" selected="true">
+                    <toggleGroup><ToggleGroup fx:id="apiKeyGroup"/></toggleGroup>
+                </RadioButton>
+                <RadioButton fx:id="customApiKeyRadio" text="Use Custom" 
+                             styleClass="option-radio">
+                    <toggleGroup><fx:reference source="apiKeyGroup"/></toggleGroup>
+                </RadioButton>
+            </HBox>
+            <TextField fx:id="customApiKeyField" promptText="Enter custom API key" 
+                       styleClass="input-field"/>
+        </VBox>
+        
+        <!-- Chrome Path Options -->
+        <VBox styleClass="section" spacing="12">
+            <Label text="Chrome Path" styleClass="section-title"/>
+            <HBox spacing="25">
+                <RadioButton fx:id="defaultChromeRadio" text="Use Default" 
+                             styleClass="option-radio" selected="true">
+                    <toggleGroup><ToggleGroup fx:id="chromeGroup"/></toggleGroup>
+                </RadioButton>
+                <RadioButton fx:id="customChromeRadio" text="Use Custom Path" 
+                             styleClass="option-radio">
+                    <toggleGroup><fx:reference source="chromeGroup"/></toggleGroup>
+                </RadioButton>
+            </HBox>
+            <TextField fx:id="customChromeField" promptText="Enter path to chrome.exe" 
+                       styleClass="input-field"/>
+        </VBox>
+        
+        <!-- Start Button -->
+        <HBox alignment="CENTER">
+            <Button fx:id="startButton" text="▶  START" styleClass="start-button" 
+                    onAction="#handleStart" prefWidth="200" prefHeight="45"/>
+        </HBox>
+        
+        <!-- Stage Indicator -->
+        <HBox styleClass="stage-box" alignment="CENTER_LEFT" spacing="10">
+            <padding><Insets top="12" right="15" bottom="12" left="15"/></padding>
+            <Label text="Current Stage:" styleClass="stage-label-prefix"/>
+            <Label fx:id="stageLabel" text="Ready" styleClass="stage-label"/>
+        </HBox>
+        
+        <!-- Log Output -->
+        <VBox styleClass="section" spacing="8" VBox.vgrow="ALWAYS">
+            <HBox alignment="CENTER_LEFT" spacing="10">
+                <Label text="Output Log" styleClass="section-title"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Button text="Clear" styleClass="small-button" onAction="#handleClearLogs"/>
+            </HBox>
+            <TextArea fx:id="logArea" styleClass="log-area" editable="false" 
+                      wrapText="true" VBox.vgrow="ALWAYS" prefHeight="150"/>
+        </VBox>
+        
+        <!-- Generated Credentials (hidden by default) -->
+        <VBox fx:id="generatedCredentialsBox" styleClass="section credentials-result" spacing="10">
+            <Label text="✓ Generated Credentials" styleClass="section-title success"/>
+            <HBox spacing="10" alignment="CENTER_LEFT">
+                <Label text="Username:" styleClass="field-label" minWidth="80"/>
+                <Label fx:id="generatedUsernameLabel" styleClass="credentials-value"/>
+                <Button text="📋" styleClass="copy-button" onAction="#handleCopyUsername"/>
+            </HBox>
+            <HBox spacing="10" alignment="CENTER_LEFT">
+                <Label text="Password:" styleClass="field-label" minWidth="80"/>
+                <Label fx:id="generatedPasswordLabel" styleClass="credentials-value"/>
+                <Button text="📋" styleClass="copy-button" onAction="#handleCopyPassword"/>
+            </HBox>
+            <HBox alignment="CENTER">
+                <Button text="📋 Copy Both" styleClass="small-button" onAction="#handleCopyBoth"/>
+            </HBox>
+        </VBox>
+    </VBox>
+</VBox>

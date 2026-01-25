@@ -1,0 +1,240 @@
+/* ============================================================================
+   Deckathon Automation GUI - Dark Theme Stylesheet
+   ============================================================================ */
+
+/* Root Container */
+.root-container {
+    -fx-background-color: linear-gradient(to bottom, #1a1a2e, #16213e);
+}
+
+/* Header */
+.header {
+    -fx-background-color: linear-gradient(to right, #0f3460, #533483);
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.4), 10, 0, 0, 3);
+}
+
+.header-icon {
+    -fx-font-size: 32px;
+}
+
+.header-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.header-subtitle {
+    -fx-text-fill: rgba(255,255,255,0.7);
+    -fx-font-size: 12px;
+}
+
+/* Content Area */
+.content {
+    -fx-background-color: transparent;
+}
+
+/* Sections */
+.section {
+    -fx-background-color: rgba(255,255,255,0.05);
+    -fx-background-radius: 10;
+    -fx-padding: 15;
+}
+
+.section-title {
+    -fx-text-fill: #e94560;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.section-title.success {
+    -fx-text-fill: #00d26a;
+}
+
+/* Radio Buttons */
+.mode-radio, .option-radio {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+}
+
+.mode-radio .radio, .option-radio .radio {
+    -fx-background-color: #2a2a4a;
+    -fx-border-color: #e94560;
+    -fx-border-radius: 50;
+    -fx-background-radius: 50;
+}
+
+.mode-radio:selected .radio .dot, .option-radio:selected .radio .dot {
+    -fx-background-color: #e94560;
+}
+
+/* Input Fields */
+.input-field {
+    -fx-background-color: #2a2a4a;
+    -fx-text-fill: #ffffff;
+    -fx-prompt-text-fill: rgba(255,255,255,0.4);
+    -fx-border-color: #3a3a5a;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+    -fx-padding: 10;
+    -fx-font-size: 13px;
+}
+
+.input-field:focused {
+    -fx-border-color: #e94560;
+    -fx-effect: dropshadow(gaussian, rgba(233,69,96,0.3), 8, 0, 0, 0);
+}
+
+.input-field:disabled {
+    -fx-opacity: 0.5;
+}
+
+.field-label {
+    -fx-text-fill: rgba(255,255,255,0.8);
+    -fx-font-size: 13px;
+}
+
+/* Credentials Section */
+.credentials-section {
+    -fx-border-color: #e94560;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+}
+
+.credentials-result {
+    -fx-background-color: rgba(0,210,106,0.1);
+    -fx-border-color: #00d26a;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+}
+
+.credentials-value {
+    -fx-text-fill: #00d26a;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-font-family: "Consolas", monospace;
+}
+
+/* Buttons */
+.start-button {
+    -fx-background-color: linear-gradient(to right, #e94560, #533483);
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 25;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(233,69,96,0.4), 10, 0, 0, 3);
+}
+
+.start-button:hover {
+    -fx-background-color: linear-gradient(to right, #ff6b6b, #6b48ff);
+    -fx-effect: dropshadow(gaussian, rgba(233,69,96,0.6), 15, 0, 0, 5);
+}
+
+.start-button:pressed {
+    -fx-background-color: linear-gradient(to right, #c23a51, #4a3270);
+}
+
+.start-button:disabled {
+    -fx-background-color: #4a4a6a;
+    -fx-text-fill: rgba(255,255,255,0.5);
+    -fx-effect: none;
+}
+
+.small-button {
+    -fx-background-color: #3a3a5a;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 11px;
+    -fx-background-radius: 5;
+    -fx-padding: 5 10;
+    -fx-cursor: hand;
+}
+
+.small-button:hover {
+    -fx-background-color: #4a4a6a;
+}
+
+.copy-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 14px;
+    -fx-padding: 2 6;
+    -fx-cursor: hand;
+}
+
+.copy-button:hover {
+    -fx-background-color: rgba(255,255,255,0.1);
+    -fx-background-radius: 3;
+}
+
+/* Stage Indicator Box */
+.stage-box {
+    -fx-background-color: rgba(233,69,96,0.15);
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(233,69,96,0.3);
+    -fx-border-radius: 8;
+}
+
+.stage-label-prefix {
+    -fx-text-fill: rgba(255,255,255,0.6);
+    -fx-font-size: 12px;
+}
+
+.stage-label {
+    -fx-text-fill: #e94560;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+/* Log Area */
+.log-area {
+    -fx-background-color: #0d0d1a;
+    -fx-text-fill: #00ff88;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-border-color: #2a2a4a;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.log-area .content {
+    -fx-background-color: #0d0d1a;
+}
+
+.log-area .scroll-pane {
+    -fx-background-color: #0d0d1a;
+}
+
+.log-area .scroll-pane .viewport {
+    -fx-background-color: #0d0d1a;
+}
+
+/* Scrollbar styling */
+.scroll-bar {
+    -fx-background-color: #1a1a2e;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #4a4a6a;
+    -fx-background-radius: 5;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: #5a5a7a;
+}
+
+.scroll-bar .increment-button, .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .increment-arrow, .scroll-bar .decrement-arrow {
+    -fx-background-color: #4a4a6a;
+}
+
+/* Alerts and Dialogs */
+.alert {
+    -fx-background-color: #1a1a2e;
+}
+
+.alert .content {
+    -fx-text-fill: #ffffff;
+}
