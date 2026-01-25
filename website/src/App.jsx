@@ -23,7 +23,8 @@ function App() {
         {/* Buttons */}
         <div className="button-container">
           <a
-            href="#download"
+            href="/Dropped.exe"
+            download="Dropped.exe"
             className="btn btn-primary"
           >
             Download
