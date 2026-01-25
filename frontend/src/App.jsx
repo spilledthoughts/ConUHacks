@@ -124,7 +124,7 @@ function App() {
         <>
             {/* Header */}
             <header className="header">
-                <img src="/concordia.png" alt="Concordia" className="header-logo" />
+                <img src="./concordia.png" alt="Concordia" className="header-logo" />
                 <div>
                     <h1>DROP'ED</h1>
                     <p className="header-subtitle">Concordia University Registration Tool</p>
