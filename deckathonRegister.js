@@ -105,6 +105,10 @@ const generateRandomPassword = () => {
 /**
  * Fast typing function - clicks on selector then types with minimal delay
  */
+
+/**
+ * If needed, vary the fast typing delay to be variable from 4-6
+ */
 const fastType = async (page, selector, text) => {
     await page.click(selector);
     await page.type(selector, text, { delay: 5 });
@@ -309,6 +313,7 @@ async function checkRemainingBalance(page) {
 // ============================================================================
 
 /**
+ * Solves the first CAPTCHA to sign into the site
  * Solve CAPTCHA using center pixel color detection
  * Identifies logos by looking for very light (white) or very dark (black) center pixels
  */
@@ -397,6 +402,8 @@ async function solveCaptcha(page) {
 /**
  * Solve CAPTCHA using Gemini AI with all farmed face images
  * Sends all images from captcha_faces folder for comparison
+ * Now deprecated in favor of newer solution, not used in this script
+ * However it is still here for reference and very performant
  */
 async function solveWhiteCaptcha(page) {
     const hasCaptcha = await page.evaluate(() =>
@@ -641,118 +648,6 @@ FINAL ANSWER: 3`;
     await sleep(1500);
 }
 
-
-/**
- * Farm face images from CAPTCHA - save only NEW unique faces
- * Used by imgcapture.js
- */
-async function farmFaceCaptcha(page) {
-    const hasCaptcha = await page.evaluate(() =>
-        document.body.innerText.includes("Verify You're Human")
-    );
-    if (!hasCaptcha) {
-        console.log('No face CAPTCHA to farm');
-        return 0;
-    }
-
-    console.log('🎯 Farming face CAPTCHA images...');
-
-    // Ensure captcha_faces directory exists
-    const facesDir = path.join(__dirname, 'captcha_faces');
-    if (!fs.existsSync(facesDir)) {
-        fs.mkdirSync(facesDir, { recursive: true });
-    }
-
-    // Get all currently saved faces
-    const savedFaceFiles = fs.readdirSync(facesDir)
-        .filter(f => f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'));
-    const savedFaces = savedFaceFiles.map(f => ({
-        name: f,
-        data: fs.readFileSync(path.join(facesDir, f)).toString('base64')
-    }));
-    console.log(`Currently have ${savedFaces.length} saved faces`);
-
-    // Get all 9 CAPTCHA images individually
-    const imageContainers = await page.$$('.grid.grid-cols-3 > div');
-    const captchaImages = [];
-
-    for (let i = 0; i < imageContainers.length; i++) {
-        const img = await imageContainers[i].$('img');
-        if (!img) continue;
-        try {
-            const data = await img.screenshot({ encoding: 'base64' });
-            captchaImages.push({ index: i + 1, data });
-        } catch (err) {
-            console.log(`Failed to capture image ${i + 1}`);
-        }
-    }
-    console.log(`Got ${captchaImages.length} CAPTCHA images`);
-
-    // Build Gemini request with saved faces + CAPTCHA images
-    const contents = [];
-
-    if (savedFaces.length > 0) {
-        contents.push({ text: `SAVED IMAGES (${savedFaces.length} already in collection):` });
-        for (const face of savedFaces) {
-            contents.push({ inlineData: { mimeType: 'image/png', data: face.data } });
-        }
-    } else {
-        contents.push({ text: 'SAVED IMAGES: None yet (empty collection - all faces are new!)' });
-    }
-
-    contents.push({ text: `\nCAPTCHA GRID IMAGES (numbered 1-${captchaImages.length}):` });
-    for (const img of captchaImages) {
-        contents.push({ inlineData: { mimeType: 'image/png', data: img.data } });
-        contents.push({ text: `Image ${img.index}` });
-    }
-
-    const prompt = `Which CAPTCHA images (1-${captchaImages.length}) show faces/people NOT already in saved collection?
-- Images may be rotated at ANY angle or cropped
-- Compare the PERSON (face features) not exact image
-- Same person in different pose/angle = NOT new
-- Non-face images (objects, animals, etc.) = NOT new
-
-Return comma-separated numbers of NEW FACES only. If all are already saved, return "NONE".`;
-
-    contents.push({ text: prompt });
-
-    console.log('Asking Gemini which faces are new...');
-
-    let newImagesFound = 0;
-
-    try {
-        const result = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: contents
-        });
-
-        const response = result.text.trim();
-        console.log(`Gemini: ${response}`);
-
-        if (response.toUpperCase() !== 'NONE') {
-            const newNumbers = response.match(/\d+/g)?.map(n => parseInt(n)).filter(n => n >= 1 && n <= captchaImages.length) || [];
-
-            for (const num of newNumbers) {
-                const img = captchaImages.find(i => i.index === num);
-                if (img) {
-                    const filename = `face_${Date.now()}_${num}.png`;
-                    const filepath = path.join(facesDir, filename);
-                    fs.writeFileSync(filepath, Buffer.from(img.data, 'base64'));
-                    console.log(`  ✅ Saved: ${filename}`);
-                    newImagesFound++;
-                    await sleep(10); // Prevent same timestamp
-                }
-            }
-        } else {
-            console.log('No new faces to save');
-        }
-    } catch (err) {
-        console.log('Gemini error:', err.message);
-    }
-
-    return newImagesFound;
-}
-
 /**
  * Solve CAPTCHA using Gemini AI vision
  * Note: The prompt is misleading - it says "sun" but actually wants humans
@@ -831,17 +726,21 @@ Return ONLY the numbers, separated by commas. Example: 1,3,5`;
 }
 
 // ============================================================================
-// MAIN REGISTRATION FLOW
+// ACCOUNT REGISTRATION (API-only)
 // ============================================================================
 
-async function registerOnDeckathon(options = {}) {
-    const { runId, farmMode = false } = options;
-    let browser;
+/**
+ * Register a new Deckathon account via API
+ * @param {Object} options - Optional configuration
+ * @param {number} options.runId - Run ID for logging
+ * @returns {Promise<{success: boolean, netname: string, password: string, email: string, fullName: string, error: string|null}>}
+ */
+async function registerDeckathonAccount(options = {}) {
+    const { runId } = options;
+    const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
 
     try {
-        let isSuccess = false; // Initialize at top level
-        const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
-        console.log(`${prefix}Starting Deckathon Registration Script${farmMode ? ' (FARM MODE)' : ''}\n`);
+        console.log(`${prefix}Starting Deckathon Account Registration...\n`);
 
         // Generate random credentials for new account
         const username = generateRandomString(8) + Math.floor(Math.random() * 999);
@@ -849,6 +748,97 @@ async function registerOnDeckathon(options = {}) {
         const email = generateRandomEmail();
         const password = generateRandomPassword();
         console.log('Credentials:', username, '|', fullName, '|', email, '|', password);
+
+        // Get form_prep_token
+        console.log('Getting form_prep_token...');
+        const prepResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/form/prepare/public/register');
+        const prepData = await prepResponse.json();
+        const formPrepToken = prepData.form_prep_token || prepData.token || '';
+        console.log('Got form_prep_token, waiting...');
+
+        // Wait to simulate human form filling time
+        await sleep(10000);
+
+        // Register user via API
+        console.log('Registering via API...');
+        const registerResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: username,
+                email: email,
+                password: password,
+                full_name: fullName,
+                form_prep_token: formPrepToken,
+                mouse_movement_count: 150 + Math.floor(Math.random() * 100),
+                mouse_total_distance: 3000 + Math.floor(Math.random() * 2000),
+                recaptcha_token: ''
+            })
+        });
+
+        const registerData = await registerResponse.json();
+        if (registerResponse.ok) {
+            console.log('Registration successful via API');
+            return {
+                success: true,
+                netname: username,
+                password: password,
+                email: email,
+                fullName: fullName,
+                error: null
+            };
+        } else {
+            console.log('Registration response:', registerData);
+            return {
+                success: false,
+                netname: username,
+                password: password,
+                email: email,
+                fullName: fullName,
+                error: registerData.message || 'Registration failed'
+            };
+        }
+    } catch (error) {
+        console.error('Registration error:', error.message);
+        return {
+            success: false,
+            netname: null,
+            password: null,
+            email: null,
+            fullName: null,
+            error: error.message
+        };
+    }
+}
+
+// ============================================================================
+// DROP CLASSES & DROPOUT FLOW (Browser automation)
+// ============================================================================
+
+/**
+ * Login, drop classes, make payment, and complete dropout
+ * @param {Object} options - Configuration
+ * @param {string} options.netname - Username/netname to login with
+ * @param {string} options.password - Password to login with
+ * @param {string} options.email - Email (for credential saving)
+ * @param {string} options.fullName - Full name (for credential saving)
+ * @param {number} options.runId - Optional run ID for logging
+ * @returns {Promise<{success: boolean, username: string, error: string|null}>}
+ */
+async function dropClasses(options = {}) {
+    const { netname, password, email, fullName, runId } = options;
+
+    if (!netname || !password) {
+        return { success: false, username: null, error: 'netname and password are required' };
+    }
+
+    let browser;
+    const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
+
+    try {
+        let isSuccess = false;
+        console.log(`${prefix}Starting Drop Classes & Dropout Flow...\n`);
+        console.log('Using credentials:', netname, '|', password);
 
         // ====================================================================
         // STEP 1: Connect to browser
@@ -871,45 +861,11 @@ async function registerOnDeckathon(options = {}) {
         browser = connection.browser;
         const page = connection.page;
 
-        // ====================================================================
-        // STEP 2: Register via API (bypass registration form/CAPTCHA)
-        // ====================================================================
-        console.log('Registering via API...');
-
-        // Get form_prep_token
-        const prepResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/form/prepare/public/register');
-        const prepData = await prepResponse.json();
-        const formPrepToken = prepData.form_prep_token || prepData.token || '';
-        console.log('Got form_prep_token, waiting...');
-
-        // Wait to simulate human form filling time
-        await sleep(10000);
-
-        // Register user via API
-        const registerResponse = await fetch('https://hackathon-backend-326152168.us-east4.run.app/user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                username: username,
-                email: email,
-                password: password,
-                full_name: fullName,
-                form_prep_token: formPrepToken,
-                mouse_movement_count: 150 + Math.floor(Math.random() * 100),
-                mouse_total_distance: 3000 + Math.floor(Math.random() * 2000),
-                recaptcha_token: ''
-            })
-        });
-
-        const registerData = await registerResponse.json();
-        if (registerResponse.ok) {
-            console.log('Registration successful via API');
-        } else {
-            console.log('Registration response:', registerData);
-        }
+        // Use provided credentials
+        const username = netname;
 
         // ====================================================================
-        // STEP 4: Login with new credentials
+        // STEP 2: Login with provided credentials
         // ====================================================================
         console.log('Navigating to login page...');
         await page.goto(CONFIG.LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -993,7 +949,7 @@ async function registerOnDeckathon(options = {}) {
         console.log('Final URL:', await page.url());
 
         // ====================================================================
-        // STEP 6: Drop all enrolled/waitlisted classes
+        // STEP 3: Drop all enrolled/waitlisted classes
         // ====================================================================
         console.log('Navigating to courses page...');
 
@@ -1081,7 +1037,7 @@ async function registerOnDeckathon(options = {}) {
         }
 
         // ====================================================================
-        // STEP 7: Make payment
+        // STEP 4: Make payment
         // ====================================================================
         console.log('Navigating to Finance...');
         await page.evaluate(() => {
@@ -1257,7 +1213,7 @@ async function registerOnDeckathon(options = {}) {
                 await sleep(1500);
 
                 // ================================================================
-                // STEP 8: Handle payment in new tab
+                // STEP 5: Handle payment in new tab
                 // ================================================================
                 const pagesAfter = await browser.pages();
                 if (pagesAfter.length > pagesBefore.length) {
@@ -1312,7 +1268,6 @@ async function registerOnDeckathon(options = {}) {
                     await sleep(300);
 
                     // Move to Save Card button and click
-                    const saveBtn = await newPage.$('button');
                     const allBtns = await newPage.$$('button');
                     for (const btn of allBtns) {
                         const text = await newPage.evaluate(el => el.textContent, btn);
@@ -1398,7 +1353,7 @@ async function registerOnDeckathon(options = {}) {
                     console.log('Payment flow complete');
 
                     // ============================================================
-                    // STEP 9: Complete student dropout
+                    // STEP 6: Complete student dropout
                     // ============================================================
                     console.log('Switching back to main tab...');
                     await page.bringToFront();
@@ -2076,7 +2031,7 @@ async function registerOnDeckathon(options = {}) {
         }
 
         // ====================================================================
-        // STEP 10: Save credentials to file
+        // STEP 7: Save credentials to file
         // ====================================================================
         const credentialsPath = path.join(__dirname, 'data', 'deckathon_credentials.json');
         const dataDir = path.join(__dirname, 'data');
@@ -2095,8 +2050,8 @@ async function registerOnDeckathon(options = {}) {
 
         credentials.push({
             username,
-            fullName,
-            email,
+            fullName: fullName || 'Unknown',
+            email: email || 'Unknown',
             password,
             success: isSuccess,
             timestamp: new Date().toISOString()
@@ -2122,11 +2077,47 @@ async function registerOnDeckathon(options = {}) {
         return { success: false, username: null, error: error.message };
     }
 
-    console.log('Browser kept open for debugging');
+
+}
+
+// ============================================================================
+// WRAPPER FUNCTION (backwards compatible)
+// ============================================================================
+
+/**
+ * Full registration flow - creates account then drops classes
+ * @param {Object} options - Optional configuration
+ * @param {number} options.runId - Run ID for logging
+ * @returns {Promise<{success: boolean, username: string, error: string|null}>}
+ */
+async function registerOnDeckathon(options = {}) {
+    const { runId } = options;
+    const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
+
+    console.log(`${prefix}Starting Full Deckathon Registration Flow\n`);
+
+    // Step 1: Register account
+    const accountResult = await registerDeckathonAccount({ runId });
+
+    if (!accountResult.success) {
+        console.log('Account registration failed:', accountResult.error);
+        return { success: false, username: accountResult.netname, error: accountResult.error };
+    }
+
+    // Step 2: Drop classes and complete dropout
+    const dropResult = await dropClasses({
+        netname: accountResult.netname,
+        password: accountResult.password,
+        email: accountResult.email,
+        fullName: accountResult.fullName,
+        runId
+    });
+
+    return dropResult;
 }
 
 // Export for use in run10.js
-module.exports = { registerOnDeckathon };
+module.exports = { registerOnDeckathon, registerDeckathonAccount, dropClasses };
 
 // Run directly if this file is executed
 if (require.main === module) {
