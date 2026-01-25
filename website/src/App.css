@@ -1,0 +1,218 @@
+/* Concordia Color Scheme */
+:root {
+  --concordia-burgundy: #912338;
+  --concordia-burgundy-dark: #6e1a2a;
+  --concordia-burgundy-light: #a83a4d;
+  --concordia-red: #D6001C;
+  --concordia-gold: #E5A823;
+  --bg-white: #ffffff;
+  --bg-light: #f8f8f8;
+  --text-primary: #1a1a1a;
+  --text-secondary: #555555;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Red Banner Header */
+.header {
+  background: linear-gradient(135deg, var(--concordia-burgundy), var(--concordia-red));
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 20px rgba(145, 35, 56, 0.3);
+}
+
+.logo {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.header-text {
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Hero Section */
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.title {
+  font-size: 3.5rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.title-accent {
+  background: linear-gradient(135deg, var(--concordia-burgundy), var(--concordia-red), var(--concordia-gold));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-flow 3s ease infinite;
+  position: relative;
+  display: inline-block;
+}
+
+.title-accent::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--concordia-burgundy), var(--concordia-red));
+  border-radius: 2px;
+  animation: underline-pulse 2s ease-in-out infinite;
+}
+
+@keyframes gradient-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes underline-pulse {
+
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scaleX(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.subtitle {
+  font-size: 1.3rem;
+  color: var(--text-secondary);
+  margin-bottom: 3rem;
+  font-weight: 400;
+  max-width: 500px;
+}
+
+/* Buttons */
+.button-container {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.btn-icon {
+  font-size: 1.2rem;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--concordia-burgundy), var(--concordia-red));
+  color: white;
+  box-shadow: 0 4px 15px rgba(145, 35, 56, 0.35);
+}
+
+.btn-primary:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(145, 35, 56, 0.5);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--concordia-burgundy);
+  border: 2px solid var(--concordia-burgundy);
+}
+
+.btn-secondary:hover {
+  background: var(--concordia-burgundy);
+  color: white;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(145, 35, 56, 0.25);
+}
+
+/* Footer */
+.footer {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  border-top: 1px solid #eee;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .title {
+    font-size: 2.2rem;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+  }
+
+  .btn {
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+  }
+
+  .header {
+    padding: 1rem 1.5rem;
+  }
+
+  .logo {
+    width: 40px;
+    height: 40px;
+  }
+}

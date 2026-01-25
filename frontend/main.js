@@ -1,6 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
+// Fix for Windows GPU/rendering issues - disable hardware acceleration
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+app.commandLine.appendSwitch('no-sandbox');
+
 // Determine if running in packaged mode
 const isDev = !app.isPackaged;
 
