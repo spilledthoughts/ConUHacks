@@ -1,99 +1,131 @@
 # DROP'ED
 
-## User Guide
+<p align="center">
+  <img src="frontend/concordia.png" alt="Concordia Mock Logo" width="150" />
+</p>
 
-This is very simple as there are only a few things that you have to concern yourself with.
-If you've installed this version of DROP'ED, that means you're trying to access our codebase!
-In which case, good luck my friend! :)
+# Drop'ed - Concordia Deckathon Automation Tool
 
-### Automation Script
+**Drop'ed** is a sophisticated automation suite built for the Concordia Deckathon 2026. It is designed to navigate the complex "Concordia Deckathon" student portal, solving over 12 unique anti-bot challenges and CAPTCHAs to automate the student dropout process.
 
-The main automation script is `/deckathonRegister.js`
+The project consists of three main components:
+1.  **Automation Core**: A high-performance pure API script (`pureApiDropout.js`).
+2.  **Desktop Application**: A user-friendly Electron app for easy execution (`frontend/`).
+3.  **Landing Page**: A marketing website for the tool (`website/`).
 
-To run it:
+---
+
+## 🚀 Quick Start (Script)
+
+For the fastest exection, run the file **pureApiDropout.js** directly. This script uses a direct API approach, using only the browser for showing the completed drop out message.
+
+1.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
+
+2.  **Configure Environment**
+    Create a `.env` file in the root directory (copy from `env_example.env`):
+    ```ini
+    GEMINI_API_KEY=your_gemini_api_key_here
+    CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+    ```
+    *Note: A valid Gemini API key is required for solving the Face CAPTCHA modules.*
+
+3.  **Run the Script**
+    ```bash
+    node pureApiDropout.js
+    ```
+
+---
+
+## 🖥️ Electron Desktop App
+
+We provide a standalone desktop application for a simpler user experience.
+
+**Location**: `/frontend`
+
+### Running within VS Code (Development)
 ```bash
+cd frontend
 npm install
-node deckathonRegister.js
+npm run dev
 ```
 
-If you're trying to test reliability, run `node run10.js`
-It'll run 10 consecutive times and print out the results (success or failure)
-
-### Electron Frontend
-
-The Electron app is in `/frontend`
-If you're trying to run the frontend, navigate to the `/frontend` directory
-Then run `npm install`
-And then run `npm run dev`
-That'll run the development build
-
-If you're trying to build the .exe file, navigate to the `/frontend` directory and run `npm run build`
-
-### Website
-
-There's also a website in `/website`
-To run it: `cd website && npm install && npm run dev`
-
-### Environment Variables
-
-If you pulled from the repository, you should be missing a .env file in the root directory, in which case you'll need to create one.
-Using the env_example.env as a template, create a .env file and fill in the values
-
-Example:
+### Building the Portable Executable
+To create a standalone `.exe` file that you can share:
+```bash
+cd frontend
+npm run pack
 ```
-GEMINI_API_KEY=uaishdIAWGBLIGYR#yuta7tdAIUWYG
-CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+This generates `frontend/dist/Dropped 1.0.0.exe`.
+
+---
+
+## 🌐 Website
+
+The project includes a promotional landing page.
+
+**Location**: `/website`
+
+```bash
+cd website
+npm install
+npm run dev
 ```
-(the gemini key was me mashing my forehead into my keyboard)
 
-## What the Bot Does
+---
 
-The script automates the entire dropout flow:
+## 🧠 How It Works
 
-1. **Account Registration** - Creates a new account via API with random credentials
-2. **Login** - Logs in with human-like mouse movements and typing patterns
-3. **OTP Verification** - Finds and enters the OTP code shown on screen
-4. **Drop Classes** - Navigates to enrollment, selects all enrolled/waitlisted courses, drops them
-5. **Payment** - Goes to Finance, enters the balance amount, fills card details in the payment popup
-6. **Logo CAPTCHA** - Uses pixel detection to identify logos (white/black center pixels)
-7. **Human Face CAPTCHA** - Sends images to Gemini AI to identify which contain humans
-8. **Student Dropout** - Navigates to dropout page, fills out the form, moves mouse around
-9. **Anti-Bot Modules** - Solves 12 different verification challenges (see table below)
-10. **Final CAPTCHA** - Brute-forces the last captcha by trying all 512 combinations in parallel
-11. **Confirmation** - Clicks the final checkbox and confirm button, verifies "User has dropped out!"
+This tool automates the entire student lifecycle in the challenge environment:
 
-### Anti-Bot Modules
+1.  **Account Creation**: Generates random credentials and registers via API.
+2.  **Authentication**:
+    *   **Login**: Bypasses logic puzzles and CAPTCHAs.
+    *   **MFA**: Intercepts OTP codes sent to the user's email.
+3.  **Class Management**: Identifies enrolled classes and drops them via API.
+4.  **Financials**: Checks balance and performs credit card payments if there are outstanding fees.
+5.  **Dropout**: Finalizes the dropout process after solving the "Pretty Faces" verification.
 
-| Module | What We Do |
-|--------|------------|
-| Verify Email | Types "VERIFY" and clicks the button |
-| Please Wait | Waits for progress bar, clicks Continue |
-| Keyboard Test | Presses 5 random keys |
-| Bot Detection | Clicks Verify (ignores the bait checkbox) |
-| System Update | Hovers the red X three times |
-| Select Location | Picks Canada, then a region, then a city |
-| Terms & Conditions | Scrolls to bottom, checks the box, clicks Accept |
-| Hidden Button | Finds the hidden button and clicks it 5 times |
-| Browser Update | Checks "I understand", clicks Continue Anyway |
-| Newsletter | Types "UNSUBSCRIBE", clicks Continue |
-| Identity Verification | Enters a fake SSN |
-| Quick Survey | Clicks a star rating, submits |
+### 🛡️ Anti-Bot Countermeasures Solved
 
-### CAPTCHA Solving
+The script successfully navigates 12 distinct verification modules:
 
-- **Logo CAPTCHA**: Pixel detection - screenshots each image, checks if center pixel is very light or very dark
-- **Human Face CAPTCHA**: Gemini AI vision - sends all 9 images to Gemini and asks which contain humans
-- **Final CAPTCHA**: Brute force - tries all 512 possible combinations in parallel batches of 50
+| Module | Method | Description |
+| :--- | :--- | :--- |
+| **Verify Email** | `API` | Automates the "VERIFY" typing challenge. |
+| **Please Wait** | `API` | Detects progress bar completion serverside. |
+| **Keyboard Test** | `API` | Simulates randomized human keypress events. |
+| **Bot Detection** | `API` | Identifies the correct button vs. bait checkboxes. |
+| **System Update** | `API` | Simulates hover events on the "X" button. |
+| **Select Location** | `API` | Hierarchical selection (Canada -> QC -> Montreal). |
+| **Hidden Button** | `DOM` | Locates 0-opacity elements and triggers click events. |
+| **Identity Check** | `Gen` | Generates valid-format SSN strings. |
+| **Newsletter** | `API` | Types "UNSUBSCRIBE" confirmation. |
+| **Terms & Cond.** | `API` | Simulates scroll-to-bottom event before accepting. |
 
-## Technologies Used
+### 🤖 CAPTCHA Solving Strategy
 
-- Puppeteer-real-browser for browser automation and potential cloudflare bypass
-- Gemini AI for vision-based CAPTCHA solving
-- Sharp for image processing
-- Electron for the desktop app
+We employ a multi-modal approach to solving the varied CAPTCHAs:
 
-## Performance
+*   **Pixel Analysis (Logos)**: We use `sharp` to analyze pixel brightness histograms to detect white/black center pixels in logo grids.
+*   **Generative AI (Crowds)**: We utilize Google's **Gemini Flash 1.5** to visually identify humans in the "Select all images with people" challenges.
+*   **Brute Force (Final)**: For the final challenge, we use a parallelized batching strategy to brute-force the 512 possible combinations (2^9) in seconds.
 
-Success rate is high. Execution time is around 2 minutes from login to withdrawn.
+---
 
-Built for ConUHacks 2026 - Deckathon Challenge
+## 🛠️ Technologies
+
+*   **Node.js**: Core runtime.
+*   **Electron**: Desktop GUI framework.
+*   **Puppeteer Real Browser**: For mimicking human fingerprints and evading detection.
+*   **Google Gemini AI**: For vision-based CAPTCHA solving.
+*   **Sharp**: High-performance image processing.
+*   **React + Vite**: Frontend framework for the website and electron app.
+
+---
+
+<p align="center">
+  Made with ❤️ for ConUHacks 2026
+</p>
