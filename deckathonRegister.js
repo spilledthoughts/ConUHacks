@@ -26,6 +26,7 @@ require('dotenv').config();
 const CONFIG = {
     REGISTER_URL: 'https://deckathon-concordia.com/register',
     LOGIN_URL: 'https://deckathon-concordia.com/login',
+    BACKEND_URL: 'https://hackathon-backend-326152168.us-east4.run.app',
     CHROME_PATH: process.env.CHROME_PATH,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY
 };
