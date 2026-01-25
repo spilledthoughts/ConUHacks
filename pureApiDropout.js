@@ -234,16 +234,25 @@ async function makePayment(authToken) {
 
     console.log(`   Balance: $${balance}`);
 
-    // Step 1: Get AUTHENTICATED form prep token (not public!)
-    console.log("   Getting auth'd prep token...");
-    const prepRes = await fetch(`${BASE_URL}/form/prepare/payment`, {
+    // Step 1: Get prep token for PAYMENT (for the actual payment)
+    console.log("   Getting payment prep token...");
+    const paymentPrepRes = await fetch(`${BASE_URL}/form/prepare/payment`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
-    const prepData = await prepRes.json();
-    const formPrepToken = prepData.form_prep_token || '';
-    console.log(`   Got prep token: ${prepRes.status}`);
+    const paymentPrepData = await paymentPrepRes.json();
+    const paymentPrepToken = paymentPrepData.form_prep_token || '';
+    console.log(`   Payment prep: ${paymentPrepRes.status} (type: ${paymentPrepData.form_type})`);
 
-    // Step 2: Get checkout session token
+    // Step 2: Get prep token for PAYMENT_METHOD (underscore! for adding card)
+    console.log("   Getting payment_method prep token...");
+    const cardPrepRes = await fetch(`${BASE_URL}/form/prepare/payment_method`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+    });
+    const cardPrepData = await cardPrepRes.json();
+    const cardPrepToken = cardPrepData.form_prep_token || '';
+    console.log(`   Card prep: ${cardPrepRes.status} (type: ${cardPrepData.form_type})`);
+
+    // Step 3: Get checkout session token
     console.log("   Getting checkout session...");
     const checkoutRes = await fetch(`${BASE_URL}/payment/checkout-session`, {
         method: 'POST',
@@ -255,9 +264,9 @@ async function makePayment(authToken) {
 
     // Wait 5s to avoid rate limit
     console.log("   Waiting 5s...");
-    await sleep(5000);
+    await sleep(10000);
 
-    // Step 3: Add payment method (use /form/prepare/payment - not payment-method!)
+    // Step 4: Add payment method (use payment_method prep token!)
     console.log("   Adding payment method...");
     const addCardRes = await fetch(`${BASE_URL}/payment-method`, {
         method: 'POST',
@@ -266,7 +275,7 @@ async function makePayment(authToken) {
             credit_card_number: "4242424242424242",
             cvv: "424",
             expiry: "12/26",
-            form_prep_token: formPrepToken,  // From /form/prepare/payment
+            form_prep_token: cardPrepToken,  // From /form/prepare/payment_method
             mouse_movement_count: 200,
             mouse_total_distance: 4000
         })
@@ -291,7 +300,7 @@ async function makePayment(authToken) {
             captcha_solved_token: paymentCaptchaToken,
             payment_method_last_4: "4242",
             amount: balance,
-            form_prep_token: formPrepToken,
+            form_prep_token: paymentPrepToken,
             mouse_movement_count: 200,
             mouse_total_distance: 4000
         })
