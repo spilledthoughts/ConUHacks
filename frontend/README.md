@@ -3,7 +3,7 @@
 A desktop application for automating Deckathon registration and dropout processes. Built with Electron and React, featuring a Concordia University themed interface.
 
 ![Concordia Theme](https://img.shields.io/badge/Theme-Concordia%20University-912338)
-![Platform](https://img.shields.io/badge/Platform-Windows-blue)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-blue)
 
 ---
 
@@ -15,16 +15,64 @@ Before running this application, make sure you have:
 2. **Google Chrome** installed
 3. The parent directory contains `deckathonRegister.js` and a `.env` file with your Gemini API key
 
-### .env File Setup
+---
+
+## 🔧 .env File Setup
 
 Create a `.env` file in the **parent directory** (not in frontend/) with:
 
+### Windows
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 ```
 
-> **Note:** `CHROME_PATH` is optional if Chrome is installed in the default location.
+### macOS
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+CHROME_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+```
+
+---
+
+## 🔍 Finding Your Chrome Path
+
+### Windows
+
+**Option 1: Default Location**
+```
+C:\Program Files\Google\Chrome\Application\chrome.exe
+```
+
+**Option 2: Find via Command Prompt**
+```cmd
+where chrome
+```
+
+**Option 3: Find via Chrome**
+1. Open Chrome
+2. Type `chrome://version` in the address bar
+3. Look for "Executable Path"
+
+---
+
+### macOS
+
+**Option 1: Default Location**
+```
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+```
+
+**Option 2: Find via Terminal**
+```bash
+mdfind "kMDItemCFBundleIdentifier == 'com.google.Chrome'" | head -1
+# Then append: /Contents/MacOS/Google Chrome
+```
+
+**Option 3: Find via Chrome**
+1. Open Chrome
+2. Type `chrome://version` in the address bar
+3. Look for "Executable Path"
 
 ---
 
@@ -32,16 +80,14 @@ CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 
 ### 1. Install Dependencies
 
-Open a terminal in the `frontend` folder and run:
-
-```powershell
+```bash
 cd frontend
 npm install
 ```
 
-### 2. Run the Application
+### 2. Run the Application (Development)
 
-```powershell
+```bash
 npm run dev
 ```
 
@@ -49,7 +95,33 @@ This will:
 - Start the Vite development server
 - Launch the Electron desktop window
 
-> **Tip:** If you see "Port 5173 is already in use", close any other running instances first.
+---
+
+## 📦 Building the App
+
+### Windows
+```bash
+npm run build:win    # Build to directory
+npm run pack:win     # Create portable .exe
+```
+
+### macOS
+```bash
+npm run build:mac    # Build to .app directory
+npm run pack:mac     # Create .dmg installer
+```
+
+### Run Built App
+
+**Windows:**
+```
+dist\win-unpacked\Dropped.exe
+```
+
+**macOS:**
+```bash
+open dist/mac-arm64/Dropped.app
+```
 
 ---
 
@@ -71,62 +143,47 @@ This will:
 
 Click the **START AUTOMATION** button and watch the live status console for progress updates.
 
-The automation will:
-1. Open Chrome browser (headful mode - you'll see it)
-2. Navigate to the Deckathon website
-3. Register/Login as needed
-4. Drop all enrolled classes
-5. Complete the payment process
-6. Finalize the dropout
-
----
-
-## 📁 Project Structure
-
-```
-frontend/
-├── main.js           # Electron main process
-├── preload.js        # IPC bridge (secure communication)
-├── package.json      # Dependencies and scripts
-├── vite.config.js    # Vite bundler configuration
-├── index.html        # HTML entry point
-└── src/
-    ├── main.jsx      # React entry point
-    ├── App.jsx       # Main UI component
-    └── index.css     # Concordia theme styles
-```
-
 ---
 
 ## 🛠️ Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Run in development mode (recommended) |
-| `npm run dev:vite` | Start only the Vite dev server |
-| `npm run dev:electron` | Start only the Electron app |
-| `npm run build` | Build for production |
-| `npm start` | Run production build |
+| `npm run dev` | Run in development mode |
+| `npm run build` | Build for current platform |
+| `npm run build:win` | Build for Windows |
+| `npm run build:mac` | Build for macOS |
+| `npm run pack:win` | Package Windows portable |
+| `npm run pack:mac` | Package macOS DMG |
 
 ---
 
 ## ⚠️ Troubleshooting
 
 ### "Port 5173 is already in use"
-Close any other running instances of the app or kill the process using:
+
+**Windows:**
 ```powershell
 npx kill-port 5173
 ```
 
-### Chrome doesn't launch
-Make sure `CHROME_PATH` in your `.env` file points to the correct Chrome executable:
-- Default Windows: `C:\Program Files\Google\Chrome\Application\chrome.exe`
-- Custom install: Check your Chrome installation path
+**macOS:**
+```bash
+npx kill-port 5173
+# or
+lsof -ti:5173 | xargs kill
+```
 
-### "Module not found" errors
-Run `npm install` again in the frontend folder.
+### Chrome doesn't launch
+
+Make sure `CHROME_PATH` in your `.env` file points to the correct Chrome executable.
+
+**Windows default:** `C:\Program Files\Google\Chrome\Application\chrome.exe`
+
+**macOS default:** `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
 
 ### Automation fails at CAPTCHA
+
 The app uses Gemini AI to solve CAPTCHAs. Ensure your `GEMINI_API_KEY` is valid and has available quota.
 
 ---
