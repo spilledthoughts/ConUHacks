@@ -1,0 +1,61 @@
+{
+    "name": "dropped",
+    "version": "1.0.0",
+    "description": "Drop'ed - Concordia Deckathon Automation Tool",
+    "main": "main.js",
+    "scripts": {
+        "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
+        "dev:vite": "vite",
+        "dev:electron": "electron .",
+        "build:react": "vite build",
+        "build": "vite build && electron-builder --win --dir",
+        "pack": "vite build && electron-builder --win portable",
+        "start": "electron ."
+    },
+    "dependencies": {
+        "dotenv": "^16.3.1"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-react": "^4.2.1",
+        "concurrently": "^8.2.2",
+        "electron": "^28.1.0",
+        "electron-builder": "^24.9.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "vite": "^5.0.10"
+    },
+    "build": {
+        "appId": "com.deckathon.automation",
+        "productName": "Dropped",
+        "directories": {
+            "output": "dist"
+        },
+        "asar": false,
+        "win": {
+            "target": "dir",
+            "signAndEditExecutable": false
+        },
+        "files": [
+            "main.js",
+            "preload.js",
+            "dist-react/**/*",
+            "public/**/*"
+        ],
+        "extraResources": [
+            {
+                "from": "..",
+                "to": "app",
+                "filter": [
+                    "deckathonRegister.js",
+                    ".env",
+                    "package.json",
+                    "node_modules/**/*",
+                    "captcha_faces/**/*",
+                    "captcha_other/**/*",
+                    "reference_images/**/*",
+                    "data/**/*"
+                ]
+            }
+        ]
+    }
+}

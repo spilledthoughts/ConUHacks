@@ -1,0 +1,27 @@
+**WELCOME TO DROP'ED**
+
+User Guide:
+This is very simple as there are only a few things that you have to concern yourself with
+If you've installed this version of DROP'ED, that means you're trying to access our codebase!
+In which case, good luck my friend! :)
+
+The backend stuff is located inside of /deckathonRegister.js
+If you're trying to run just the backend a single time, feel free the script itself as it comes built in with testing features
+Before running though, make sure that you have ran "npm install"
+If you're trying to test reliability, run /run10.js
+It'll run 10 consecutive times and print out the results (success or failure)
+
+The electron app stuff is located inside of /frontend
+If you're trying to run the frontend, navigate to the /frontend directory 
+Then run "npm install"
+And then run "npm run dev"
+That'll run the development build
+
+If you're trying to build the .exe file, navigate to the /frontend directory and run "npm run build"
+
+If you pulled from the repository, you should be missing a .env file in the root directory, in which case you'll need to create one
+Using the env_example.env as a template, create a .env file and fill in the values
+example:
+GEMINI_API_KEY=uaishdIAWGBLIGYR#yuta7tdAIUWYG
+CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+(the gemini key was me mashing my forehead into my keyboard)

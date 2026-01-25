@@ -30,8 +30,19 @@ const CONFIG = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY
 };
 
-// Initialize Gemini AI for CAPTCHA solving
-const ai = new GoogleGenAI({ apiKey: CONFIG.GEMINI_API_KEY });
+// Lazy initialize Gemini AI for CAPTCHA solving (only when needed)
+let _ai = null;
+const getAI = () => {
+    if (!_ai) {
+        if (!CONFIG.GEMINI_API_KEY) {
+            throw new Error('GEMINI_API_KEY is not set. Please provide an API key.');
+        }
+        _ai = new GoogleGenAI({ apiKey: CONFIG.GEMINI_API_KEY });
+    }
+    return _ai;
+};
+// Keep 'ai' as alias for backwards compatibility in functions that use it
+const ai = { get models() { return getAI().models; } };
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -2119,8 +2130,9 @@ async function registerOnDeckathon(options = {}) {
 // Export for use in run10.js
 module.exports = { registerOnDeckathon, registerDeckathonAccount, dropClasses };
 
-// Run directly if this file is executed
-if (require.main === module) {
+// Run directly if this file is executed (NOT when imported by Electron)
+const isElectron = process.versions && process.versions.electron;
+if (require.main === module && !isElectron) {
     registerOnDeckathon();
 }
 
