@@ -148,12 +148,13 @@ ipcMain.handle('run-automation', async (event, config) => {
 
         if (config.mode === 'new') {
             console.log('Starting NEW ACCOUNT mode...');
-            result = await registerOnDeckathon();
+            result = await registerOnDeckathon({ headless: config.headless });
         } else {
             console.log('Starting EXISTING ACCOUNT mode...');
             result = await dropClasses({
                 netname: config.netname,
-                password: config.password
+                password: config.password,
+                headless: config.headless
             });
         }
 

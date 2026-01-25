@@ -584,7 +584,7 @@ async function registerDeckathonAccount(options = {}) {
  * @returns {Promise<{success: boolean, username: string, error: string|null}>}
  */
 async function dropClasses(options = {}) {
-    const { netname, password, email, fullName, runId } = options;
+    const { netname, password, email, fullName, runId, headless = false } = options;
 
     if (!netname || !password) {
         return { success: false, username: null, error: 'netname and password are required' };
@@ -603,7 +603,7 @@ async function dropClasses(options = {}) {
         // ====================================================================
         console.log('Connecting...');
         const connection = await connect({
-            headless: false,
+            headless: headless,
             fingerprint: false,
             turnstile: true,
             tf: true,
@@ -1148,556 +1148,33 @@ async function dropClasses(options = {}) {
         } // End payment retry loop
 
         // ============================================================
-        // Continue with Student Dropout (outside retry loop)
+        // BRUTE FORCE ATTACK (immediately after payment)
         // ============================================================
+        console.log('\n=== BRUTE FORCE ATTACK (Post-Payment) ===');
 
-        // Navigate to Student Dropout if not already there
-        console.log('Ensuring we are on Student Dropout page...');
-        await page.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('a'));
-            links.find(l => l.textContent.includes('Student Dropout'))?.click();
-        });
-        await sleep(500);
-
-        // Click Start Dropout (may be in shadow DOM)
-        const startClicked = await page.evaluate(() => {
-            // Try shadow DOM first
-            const shadowContainer = document.querySelector('.shadow-container');
-            if (shadowContainer?.shadowRoot) {
-                const btn = shadowContainer.shadowRoot.querySelector('.real-dropout-btn');
-                if (btn) { btn.click(); return true; }
-            }
-            // Try regular DOM
-            const btn = document.querySelector('.real-dropout-btn');
-            if (btn) { btn.click(); return true; }
-            // Try by text
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const textBtn = buttons.find(b => b.textContent.includes('Start Dropout'));
-            if (textBtn) { textBtn.click(); return true; }
-            return false;
-        });
-        console.log(startClicked ? 'Clicked Start Dropout Process' : 'Start Dropout button not found');
-        await sleep(500);
-
-        // Select dropout reason
-        await page.evaluate(() => {
-            const radios = document.querySelectorAll('input[type="radio"]');
-            for (const radio of radios) {
-                if (radio.value.includes('Academic program')) {
-                    radio.click();
-                    break;
-                }
-            }
-        });
-        console.log('Selected dropout reason');
-        await sleep(300);
-
-        // Natural mouse movement (anti-bot bypass)
-        await naturalMouseMove(page);
-
-        // === ANTI-BOT: Wild mouse movements for 2 seconds ===
-        console.log('Moving mouse wildly...');
-        const startTime = Date.now();
-        while (Date.now() - startTime < 2000) {
-            await page.mouse.move(
-                100 + Math.random() * 1600,
-                100 + Math.random() * 800,
-                { steps: 3 }
-            );
-            await sleep(50);
-        }
-
-        // Click "Other (please specify)" and type random letters
-        console.log('Filling Other field...');
-        await page.evaluate(() => {
-            const radios = document.querySelectorAll('input[type="radio"]');
-            for (const radio of radios) {
-                if (radio.value.includes('Other') || radio.nextSibling?.textContent?.includes('Other')) {
-                    radio.click();
-                    break;
-                }
-            }
-        });
-        await sleep(300);
-
-        // Type random letters in the specify field
-        const otherInput = await page.$('input[placeholder*="specify"], input[placeholder*="Please"], textarea');
-        if (otherInput) {
-            await otherInput.click();
-            const randomText = Array.from({ length: 50 }, () =>
-                String.fromCharCode(97 + Math.floor(Math.random() * 26))
-            ).join('');
-            await otherInput.type(randomText, { delay: 10 });
-        }
-
-        // Open blank tab, wait 11s, return
-        console.log('Opening blank tab...');
-        const blankPage = await browser.newPage();
-        await blankPage.goto('about:blank');
-        await sleep(11000);
-        await blankPage.close();
-        await page.bringToFront();
-        console.log('Returned to main tab');
-
-        // Click Next button
-        console.log('Looking for Next button...');
-        const nextBtn = await page.$('button.bg-primary-600');
-        if (nextBtn) {
-            await nextBtn.click();
-            console.log('Clicked Next');
-        } else {
-            await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                buttons.find(b => b.querySelector('span')?.textContent?.trim() === 'Next')?.click();
-            });
-            console.log('Clicked Next (fallback)');
-        }
-        await sleep(1000);
-
-        // ============================================================
-        // Solve anti-bot modules that appear before final CAPTCHA
-        // ============================================================
-        console.log('Looking for anti-bot modules...');
-
-        let modulesSolved = 0;
-        const MAX_MODULES = 20;
-        let lastModule = '';
-        let sameModuleCount = 0;
-
-        while (modulesSolved < MAX_MODULES) {
-            await sleep(200);
-            const pageText = await page.evaluate(() => document.body.innerText);
-
-            // Check if we've reached the final CAPTCHA
-            if (pageText.includes("Verify You're Human") && pageText.includes("Select all")) {
-                console.log('Reached final CAPTCHA - stopping');
-                break;
-            }
-
-            // 1. Verify Email - Type "VERIFY" and click Verify
-            const hasEmailVerify = await page.evaluate(() =>
-                document.body.innerText.includes('Verify Your Email') &&
-                document.body.innerText.includes('The code is "VERIFY"')
-            );
-            if (hasEmailVerify) {
-                if (lastModule === 'email') {
-                    sameModuleCount++;
-                    if (sameModuleCount >= 5) {
-                        console.log('Stuck on Verify Email, breaking...');
-                        break;
-                    }
-                } else {
-                    lastModule = 'email';
-                    sameModuleCount = 1;
-                }
-                console.log('Module: Verify Email');
-                // Type VERIFY and click using evaluate
-                await page.evaluate(() => {
-                    const input = document.querySelector('input[placeholder*="verification"], input[placeholder*="Enter"]');
-                    if (input) {
-                        input.value = 'VERIFY';
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                    const btns = Array.from(document.querySelectorAll('button'));
-                    const verifyBtn = btns.find(b => b.textContent.includes('Verify') && !b.textContent.includes('Resend'));
-                    if (verifyBtn) verifyBtn.click();
-                });
-                console.log('Typed VERIFY and clicked button');
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 2. Please Wait - Wait for 100% then click Continue
-            const hasWait = await page.evaluate(() =>
-                document.body.innerText.includes('Please Wait...')
-            );
-            if (hasWait) {
-                if (lastModule === 'wait') {
-                    sameModuleCount++;
-                    if (sameModuleCount >= 5) {
-                        console.log('Stuck on Please Wait, breaking...');
-                        break;
-                    }
-                } else {
-                    lastModule = 'wait';
-                    sameModuleCount = 1;
-                }
-                console.log('Module: Please Wait...');
-                // Wait for progress to reach 100%
-                await page.waitForFunction(() => {
-                    const text = document.body.innerText;
-                    return text.includes('100%');
-                }, { timeout: 30000 }).catch(() => { });
-                await sleep(500);
-                // Find and click Continue button directly
-                const continueBtn = await page.$('button.bg-blue-600');
-                if (continueBtn) {
-                    await continueBtn.click();
-                    console.log('Clicked Continue (direct)');
-                } else {
-                    await page.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        buttons.find(b => b.textContent.includes('Continue') && !b.disabled)?.click();
-                    });
-                    console.log('Clicked Continue (fallback)');
-                }
-                modulesSolved++;
-                await sleep(1000);
-                continue;
-            }
-
-            // 3. Keyboard Test - Press 5 different keys
-            const hasKeyboard = await page.evaluate(() =>
-                document.body.innerText.includes('Keyboard Test') &&
-                document.body.innerText.includes('Press any 5 different keys')
-            );
-            if (hasKeyboard) {
-                console.log('Module: Keyboard Test');
-                // Click on the area to focus
-                await page.click('.bg-white.border-2.border-green-400');
-                await sleep(100);
-                // Press 5 different keys
-                const keys = ['a', 'b', 'c', 'd', 'e'];
-                for (const key of keys) {
-                    await page.keyboard.press(key);
-                    await sleep(100);
-                }
-                await sleep(300);
-                await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Submit'))?.click();
-                });
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 4. Bot Detection - DON'T check box, just click Verify
-            const hasBotDetect = await page.evaluate(() =>
-                document.body.innerText.includes('Bot Detection') &&
-                document.body.innerText.includes('I am a robot')
-            );
-            if (hasBotDetect) {
-                console.log('Module: Bot Detection (NOT checking box)');
-                await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Verify'))?.click();
-                });
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 5. System Update - Hover over red X 3 times then click
-            const hasSystemUpdate = await page.evaluate(() =>
-                document.body.innerText.includes('System Update') &&
-                document.body.innerText.includes('Hover:')
-            );
-            if (hasSystemUpdate) {
-                console.log('Module: System Update (hover game)');
-                for (let i = 0; i < 5; i++) { // Extra hovers in case
-                    const redBtn = await page.$('button.bg-red-500');
-                    if (redBtn) {
-                        const box = await redBtn.boundingBox();
-                        if (box) {
-                            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
-                            await sleep(300);
-                        }
-                    }
-                }
-                await sleep(300);
-                // Now click the red button
-                const redBtn = await page.$('button.bg-red-500');
-                if (redBtn) await redBtn.click();
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 6. Select Location - Select all dropdowns and confirm
-            const hasLocation = await page.evaluate(() =>
-                document.body.innerText.includes('Select Your Location') &&
-                document.body.innerText.includes('Country')
-            );
-            if (hasLocation) {
-                console.log('Module: Select Location');
-                // Select Country
-                await page.select('select:nth-of-type(1)', 'Canada');
-                await sleep(500);
-                // Select Region (wait for it to be enabled)
-                await page.waitForFunction(() => {
-                    const selects = document.querySelectorAll('select');
-                    return selects[1] && !selects[1].disabled;
-                }, { timeout: 3000 }).catch(() => { });
-                await page.evaluate(() => {
-                    const selects = document.querySelectorAll('select');
-                    if (selects[1] && selects[1].options.length > 1) {
-                        selects[1].value = selects[1].options[1].value;
-                        selects[1].dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
-                await sleep(500);
-                // Select City (wait for it to be enabled)
-                await page.waitForFunction(() => {
-                    const selects = document.querySelectorAll('select');
-                    return selects[2] && !selects[2].disabled;
-                }, { timeout: 3000 }).catch(() => { });
-                await page.evaluate(() => {
-                    const selects = document.querySelectorAll('select');
-                    if (selects[2] && selects[2].options.length > 1) {
-                        selects[2].value = selects[2].options[1].value;
-                        selects[2].dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                });
-                await sleep(300);
-                await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Confirm'))?.click();
-                });
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 7. Terms & Conditions - Scroll to bottom, check box, click Accept
-            const hasTerms = await page.evaluate(() =>
-                document.body.innerText.includes('Terms & Conditions') &&
-                document.body.innerText.includes('I agree to the terms')
-            );
-            if (hasTerms) {
-                console.log('Module: Terms & Conditions');
-                // Scroll the terms box to bottom
-                await page.evaluate(() => {
-                    const scrollBox = document.querySelector('.overflow-y-scroll');
-                    if (scrollBox) scrollBox.scrollTop = scrollBox.scrollHeight;
-                });
-                await sleep(300);
-                // Check the checkbox
-                await page.evaluate(() => {
-                    const checkbox = document.querySelector('input[type="checkbox"]');
-                    if (checkbox && !checkbox.checked) checkbox.click();
-                });
-                await sleep(200);
-                // Click Accept
-                await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Accept'))?.click();
-                });
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 8. Hidden Button - Click the hidden button 5 times
-            const hasHidden = await page.evaluate(() =>
-                document.body.innerText.includes('Important Notice') &&
-                document.body.innerText.includes('hidden button')
-            );
-            if (hasHidden) {
-                if (lastModule === 'hidden') {
-                    sameModuleCount++;
-                    if (sameModuleCount >= 5) {
-                        console.log('Stuck on Hidden Button, breaking...');
-                        break;
-                    }
-                } else {
-                    lastModule = 'hidden';
-                    sameModuleCount = 1;
-                }
-                console.log('Module: Hidden Button');
-                // Click the hidden button 5 times using evaluate
-                for (let i = 0; i < 6; i++) {
-                    await page.evaluate(() => {
-                        const btns = Array.from(document.querySelectorAll('button'));
-                        const hiddenBtn = btns.find(b => b.textContent.includes('Hidden'));
-                        if (hiddenBtn) hiddenBtn.click();
-                    });
-                    await sleep(100);
-                }
-                modulesSolved++;
-                await sleep(200);
-                continue;
-            }
-
-            // 9. Browser Update Required - Check box, click Continue Anyway
-            const hasBrowserUpdate = await page.evaluate(() =>
-                document.body.innerText.includes('Browser Update Required') &&
-                document.body.innerText.includes('I understand the risks')
-            );
-            if (hasBrowserUpdate) {
-                console.log('Module: Browser Update Required');
-                // Check the checkbox
-                await page.evaluate(() => {
-                    const checkbox = document.querySelector('input[type="checkbox"]');
-                    if (checkbox && !checkbox.checked) checkbox.click();
-                });
-                await sleep(200);
-                // Click Continue Anyway
-                await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Continue Anyway'))?.click();
-                });
-                modulesSolved++;
-                await sleep(500);
-                continue;
-            }
-
-            // 10. Newsletter Subscribe - Type UNSUBSCRIBE and click Continue
-            const hasNewsletter = await page.evaluate(() =>
-                document.body.innerText.includes('Subscribe to Our Newsletter')
-            );
-            if (hasNewsletter) {
-                console.log('Module: Newsletter Subscribe');
-                // Type UNSUBSCRIBE and click Continue
-                await page.evaluate(() => {
-                    const input = document.querySelector('input[placeholder*="UNSUBSCRIBE"], input[placeholder*="skip"]');
-                    if (input) {
-                        input.value = 'UNSUBSCRIBE';
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                    const btns = Array.from(document.querySelectorAll('button'));
-                    const continueBtn = btns.find(b => b.textContent.includes('Continue') && !b.textContent.includes('Anyway'));
-                    if (continueBtn) continueBtn.click();
-                });
-                console.log('Typed UNSUBSCRIBE and clicked Continue');
-                modulesSolved++;
-                await sleep(200);
-                continue;
-            }
-
-            // 11. Identity Verification - Enter fake SSN and click Verify Identity
-            const hasIdentity = await page.evaluate(() =>
-                document.body.innerText.includes('Identity Verification') &&
-                document.body.innerText.includes('Social Security')
-            );
-            if (hasIdentity) {
-                console.log('Module: Identity Verification');
-                const input = await page.$('input[placeholder*="XXX"]');
-                if (input) {
-                    await input.click({ clickCount: 3 });
-                    await page.keyboard.press('Backspace');
-                    await input.type('123-45-6789', { delay: 30 });
-                }
-                await sleep(300);
-                const btns = await page.$$('button');
-                for (const btn of btns) {
-                    const text = await page.evaluate(el => el.textContent, btn);
-                    if (text.includes('Verify Identity')) {
-                        await btn.click();
-                        console.log('Clicked Verify Identity');
-                        break;
-                    }
-                }
-                modulesSolved++;
-                await sleep(1000);
-                continue;
-            }
-
-            // 12. Quick Survey - Click 5 star rating and Submit
-            const hasSurvey = await page.evaluate(() =>
-                document.body.innerText.includes('Quick Survey') &&
-                document.body.innerText.includes('Rate your experience')
-            );
-            if (hasSurvey) {
-                console.log('Module: Quick Survey');
-                // Click one star (the 5th one for 5 stars, but any works)
-                const stars = await page.$$('button');
-                let starClicked = false;
-                for (const star of stars) {
-                    const text = await page.evaluate(el => el.textContent, star);
-                    if (text.trim() === '★') {
-                        await star.click();
-                        console.log('Clicked star');
-                        starClicked = true;
-                        break; // Just click one star
-                    }
-                }
-                await sleep(200);
-                // Click Submit
-                if (starClicked) {
-                    const btns = await page.$$('button');
-                    for (const btn of btns) {
-                        const text = await page.evaluate(el => el.textContent, btn);
-                        if (text.includes('Submit')) {
-                            await btn.click();
-                            console.log('Clicked Submit (Survey)');
-                            break;
-                        }
-                    }
-                }
-                modulesSolved++;
-                await sleep(300);
-                continue;
-            }
-
-            // No module found - might be done or something new
-            console.log('No known module detected, checking for final CAPTCHA...');
-            break;
-        }
-
-        console.log(`Solved ${modulesSolved} anti-bot modules`);
-
-        // ============================================================
-        // FINAL STEP: Complete dropout with brute force CAPTCHA
-        // ============================================================
-        console.log('Starting final dropout sequence...');
-
-        // 1. Click the iframe checkbox
-        console.log('Looking for iframe checkbox...');
-        const iframeHandle = await page.$('iframe');
-        if (iframeHandle) {
-            const frame = await iframeHandle.contentFrame();
-            if (frame) {
-                await frame.evaluate(() => {
-                    const cb = document.getElementById('final-agree');
-                    if (cb && !cb.checked) cb.click();
-                });
-                console.log('Checked iframe checkbox');
-            }
-        }
-        await sleep(300);
-
-        // 2. Click Confirm Dropout
-        await page.evaluate(() => {
-            const btns = Array.from(document.querySelectorAll('button'));
-            const btn = btns.find(b => b.textContent.includes('Confirm Dropout'));
-            if (btn) btn.click();
-        });
-        console.log('Clicked Confirm Dropout');
-        await sleep(1000);
-
-        // 3. Get auth token - try document.cookie first (most reliable)
+        // Get auth token
         let authToken = await page.evaluate(() => {
-            // Check document.cookie
             const match = document.cookie.match(/auth_token=([^;]+)/);
             if (match) return match[1];
-
-            // Check localStorage
             const lsToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
             if (lsToken) return lsToken;
-
             return null;
         });
 
-        // Try puppeteer cookies from backend domain
         if (!authToken) {
-            const cookies = await page.cookies('https://hackathon-backend-326152168.us-east4.run.app');
-            console.log(`Backend cookies: ${cookies.length} found`);
+            const cookies = await page.cookies(CONFIG.BACKEND_URL);
             const authCookie = cookies.find(c => c.name === 'auth_token');
             if (authCookie) {
                 authToken = authCookie.value;
-                console.log('Got auth token from backend cookies');
+                console.log('Got auth token from cookies');
             }
         }
 
-        if (!authToken) {
-            console.log('No auth token found');
-        } else {
-            console.log('Auth token acquired');
+        let bruteForceSuccess = false;
 
-            // 4. Run the brute force CAPTCHA attack
-            console.log('Running brute force CAPTCHA attack...');
+        if (authToken) {
+            console.log('Auth token found - running brute force...');
+
             const result = await page.evaluate(async (token) => {
                 const AUTH_HEADER = "Bearer " + token;
                 const BASE_URL = "https://hackathon-backend-326152168.us-east4.run.app";
@@ -1709,10 +1186,10 @@ async function dropClasses(options = {}) {
                     if (!res.ok) return { error: 'Failed to fetch puzzle' };
                     challengeData = await res.json();
                 } catch (e) {
-                    return { error: 'Network error fetching puzzle' };
+                    return { error: 'Network error' };
                 }
 
-                // Brute force
+                // Brute force all 512 combinations
                 const encryptedKey = challengeData.encrypted_answer;
                 const allUrls = challengeData.images.map(img => img.url);
                 const totalCombinations = 512;
@@ -1746,7 +1223,7 @@ async function dropClasses(options = {}) {
 
                 if (!solvedToken) return { error: 'Failed to solve captcha' };
 
-                // Send final dropout request
+                // Send dropout request
                 const superPayload = {
                     captcha_solved_token: solvedToken,
                     keystroke_count: 310,
@@ -1767,7 +1244,7 @@ async function dropClasses(options = {}) {
                     if (response.ok) {
                         return { success: true, data };
                     } else {
-                        return { error: 'Dropout failed', status: response.status, data };
+                        return { error: 'Dropout failed', data };
                     }
                 } catch (e) {
                     return { error: 'Network error on dropout' };
@@ -1775,18 +1252,676 @@ async function dropClasses(options = {}) {
             }, authToken);
 
             if (result.success) {
-                console.log('🎉 DROPOUT SUCCESSFUL!');
+                console.log('🎉 BRUTE FORCE SUCCESS! Dropout completed!');
                 console.log('Response:', JSON.stringify(result.data));
+                bruteForceSuccess = true;
                 isSuccess = true;
+
+                // Refresh page
+                await page.reload({ waitUntil: 'domcontentloaded' });
+                console.log('Page refreshed');
             } else {
-                console.log('Dropout failed:', result.error);
+                console.log('Brute force failed:', result.error);
                 if (result.data) console.log('Details:', JSON.stringify(result.data));
             }
-
-            // 5. Refresh page
-            await page.reload({ waitUntil: 'domcontentloaded' });
-            console.log('Page refreshed');
+        } else {
+            console.log('No auth token found - skipping brute force');
         }
+
+        // If brute force succeeded, skip all anti-bot modules
+        if (bruteForceSuccess) {
+            console.log('Skipping anti-bot modules (brute force already succeeded)');
+        } else {
+            // ============================================================
+            // Continue with Student Dropout (outside retry loop)
+            // ============================================================
+
+            // Navigate to Student Dropout if not already there
+            console.log('Ensuring we are on Student Dropout page...');
+            await page.evaluate(() => {
+                const links = Array.from(document.querySelectorAll('a'));
+                links.find(l => l.textContent.includes('Student Dropout'))?.click();
+            });
+            await sleep(500);
+
+            // Click Start Dropout (may be in shadow DOM)
+            const startClicked = await page.evaluate(() => {
+                // Try shadow DOM first
+                const shadowContainer = document.querySelector('.shadow-container');
+                if (shadowContainer?.shadowRoot) {
+                    const btn = shadowContainer.shadowRoot.querySelector('.real-dropout-btn');
+                    if (btn) { btn.click(); return true; }
+                }
+                // Try regular DOM
+                const btn = document.querySelector('.real-dropout-btn');
+                if (btn) { btn.click(); return true; }
+                // Try by text
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const textBtn = buttons.find(b => b.textContent.includes('Start Dropout'));
+                if (textBtn) { textBtn.click(); return true; }
+                return false;
+            });
+            console.log(startClicked ? 'Clicked Start Dropout Process' : 'Start Dropout button not found');
+            await sleep(500);
+
+            // Select dropout reason
+            await page.evaluate(() => {
+                const radios = document.querySelectorAll('input[type="radio"]');
+                for (const radio of radios) {
+                    if (radio.value.includes('Academic program')) {
+                        radio.click();
+                        break;
+                    }
+                }
+            });
+            console.log('Selected dropout reason');
+            await sleep(300);
+
+            // Natural mouse movement (anti-bot bypass)
+            await naturalMouseMove(page);
+
+            // === ANTI-BOT: Wild mouse movements for 2 seconds ===
+            console.log('Moving mouse wildly...');
+            const startTime = Date.now();
+            while (Date.now() - startTime < 2000) {
+                await page.mouse.move(
+                    100 + Math.random() * 1600,
+                    100 + Math.random() * 800,
+                    { steps: 3 }
+                );
+                await sleep(50);
+            }
+
+            // Click "Other (please specify)" and type random letters
+            console.log('Filling Other field...');
+            await page.evaluate(() => {
+                const radios = document.querySelectorAll('input[type="radio"]');
+                for (const radio of radios) {
+                    if (radio.value.includes('Other') || radio.nextSibling?.textContent?.includes('Other')) {
+                        radio.click();
+                        break;
+                    }
+                }
+            });
+            await sleep(300);
+
+            // Type random letters in the specify field
+            const otherInput = await page.$('input[placeholder*="specify"], input[placeholder*="Please"], textarea');
+            if (otherInput) {
+                await otherInput.click();
+                const randomText = Array.from({ length: 50 }, () =>
+                    String.fromCharCode(97 + Math.floor(Math.random() * 26))
+                ).join('');
+                await otherInput.type(randomText, { delay: 10 });
+            }
+
+            // Open blank tab, wait 11s, return
+            console.log('Opening blank tab...');
+            const blankPage = await browser.newPage();
+            await blankPage.goto('about:blank');
+            await sleep(11000);
+            await blankPage.close();
+            await page.bringToFront();
+            console.log('Returned to main tab');
+
+            // Click Next button
+            console.log('Looking for Next button...');
+            const nextBtn = await page.$('button.bg-primary-600');
+            if (nextBtn) {
+                await nextBtn.click();
+                console.log('Clicked Next');
+            } else {
+                await page.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    buttons.find(b => b.querySelector('span')?.textContent?.trim() === 'Next')?.click();
+                });
+                console.log('Clicked Next (fallback)');
+            }
+            await sleep(1000);
+
+            // ============================================================
+            // TRY BRUTE FORCE ATTACK FIRST (before anti-bot modules)
+            // ============================================================
+            console.log('Attempting brute force CAPTCHA attack first...');
+
+            // Get auth token - try document.cookie first (most reliable)
+            let authToken = await page.evaluate(() => {
+                // Check document.cookie
+                const match = document.cookie.match(/auth_token=([^;]+)/);
+                if (match) return match[1];
+
+                // Check localStorage
+                const lsToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
+                if (lsToken) return lsToken;
+
+                return null;
+            });
+
+            // Try puppeteer cookies from backend domain
+            if (!authToken) {
+                const cookies = await page.cookies('https://hackathon-backend-326152168.us-east4.run.app');
+                console.log(`Backend cookies: ${cookies.length} found`);
+                const authCookie = cookies.find(c => c.name === 'auth_token');
+                if (authCookie) {
+                    authToken = authCookie.value;
+                    console.log('Got auth token from backend cookies');
+                }
+            }
+
+            let bruteForceSuccess = false;
+
+            if (authToken) {
+                console.log('Auth token acquired - running brute force attack...');
+
+                const result = await page.evaluate(async (token) => {
+                    const AUTH_HEADER = "Bearer " + token;
+                    const BASE_URL = "https://hackathon-backend-326152168.us-east4.run.app";
+
+                    // Fetch puzzle
+                    let challengeData;
+                    try {
+                        const res = await fetch(`${BASE_URL}/captcha/challenge?challenge_type=pretty_faces`);
+                        if (!res.ok) return { error: 'Failed to fetch puzzle' };
+                        challengeData = await res.json();
+                    } catch (e) {
+                        return { error: 'Network error fetching puzzle' };
+                    }
+
+                    // Brute force
+                    const encryptedKey = challengeData.encrypted_answer;
+                    const allUrls = challengeData.images.map(img => img.url);
+                    const totalCombinations = 512;
+                    const batchSize = 50;
+                    let solvedToken = null;
+
+                    for (let i = 0; i < totalCombinations; i += batchSize) {
+                        const batchPromises = [];
+                        for (let j = 0; j < batchSize; j++) {
+                            if (i + j >= totalCombinations) break;
+                            const currentVal = i + j;
+                            const selectedUrls = [];
+                            for (let bit = 0; bit < 9; bit++) {
+                                if ((currentVal >> bit) & 1) selectedUrls.push(allUrls[bit]);
+                            }
+                            const p = fetch(`${BASE_URL}/captcha/submit`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", "Authorization": AUTH_HEADER },
+                                body: JSON.stringify({ purpose: "dropout", encrypted_answer: encryptedKey, selected_urls: selectedUrls })
+                            }).then(async res => {
+                                if (res.ok) return (await res.json()).captcha_solved_token;
+                                return false;
+                            }).catch(() => false);
+                            batchPromises.push(p);
+                        }
+                        const results = await Promise.all(batchPromises);
+                        solvedToken = results.find(r => r !== false);
+                        if (solvedToken) break;
+                        await new Promise(r => setTimeout(r, 10));
+                    }
+
+                    if (!solvedToken) return { error: 'Failed to solve captcha' };
+
+                    // Send final dropout request
+                    const superPayload = {
+                        captcha_solved_token: solvedToken,
+                        keystroke_count: 310,
+                        unique_chars_count: 45,
+                        checkbox_entropy: 150.5,
+                        confirm_button_entropy: 150.0,
+                        captcha_entropy: 750.0,
+                        time_on_page: 2500.0
+                    };
+
+                    try {
+                        const response = await fetch(`${BASE_URL}/dropout`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", "Authorization": AUTH_HEADER },
+                            body: JSON.stringify(superPayload)
+                        });
+                        const data = await response.json();
+                        if (response.ok) {
+                            return { success: true, data };
+                        } else {
+                            return { error: 'Dropout failed', status: response.status, data };
+                        }
+                    } catch (e) {
+                        return { error: 'Network error on dropout' };
+                    }
+                }, authToken);
+
+                if (result.success) {
+                    console.log('DROPOUT SUCCESSFUL (brute force first attempt)');
+                    console.log('Response:', JSON.stringify(result.data));
+                    bruteForceSuccess = true;
+                    isSuccess = true;
+                } else {
+                    console.log('Brute force failed:', result.error, '- falling back to anti-bot modules');
+                }
+            } else {
+                console.log('No auth token found - proceeding with anti-bot modules');
+            }
+
+            // ============================================================
+            // FALLBACK: Solve anti-bot modules if brute force failed
+            // ============================================================
+            if (!bruteForceSuccess) {
+                console.log('Looking for anti-bot modules...');
+
+                let modulesSolved = 0;
+                const MAX_MODULES = 20;
+                let lastModule = '';
+                let sameModuleCount = 0;
+
+                while (modulesSolved < MAX_MODULES) {
+                    await sleep(200);
+                    const pageText = await page.evaluate(() => document.body.innerText);
+
+                    // Check if we've reached the final CAPTCHA
+                    if (pageText.includes("Verify You're Human") && pageText.includes("Select all")) {
+                        console.log('Reached final CAPTCHA - stopping');
+                        break;
+                    }
+
+                    // 1. Verify Email - Type "VERIFY" and click Verify
+                    const hasEmailVerify = await page.evaluate(() =>
+                        document.body.innerText.includes('Verify Your Email') &&
+                        document.body.innerText.includes('The code is "VERIFY"')
+                    );
+                    if (hasEmailVerify) {
+                        if (lastModule === 'email') {
+                            sameModuleCount++;
+                            if (sameModuleCount >= 5) {
+                                console.log('Stuck on Verify Email, breaking...');
+                                break;
+                            }
+                        } else {
+                            lastModule = 'email';
+                            sameModuleCount = 1;
+                        }
+                        console.log('Module: Verify Email');
+                        // Type VERIFY and click using evaluate
+                        await page.evaluate(() => {
+                            const input = document.querySelector('input[placeholder*="verification"], input[placeholder*="Enter"]');
+                            if (input) {
+                                input.value = 'VERIFY';
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const verifyBtn = btns.find(b => b.textContent.includes('Verify') && !b.textContent.includes('Resend'));
+                            if (verifyBtn) verifyBtn.click();
+                        });
+                        console.log('Typed VERIFY and clicked button');
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 2. Please Wait - Wait for 100% then click Continue
+                    const hasWait = await page.evaluate(() =>
+                        document.body.innerText.includes('Please Wait...')
+                    );
+                    if (hasWait) {
+                        if (lastModule === 'wait') {
+                            sameModuleCount++;
+                            if (sameModuleCount >= 5) {
+                                console.log('Stuck on Please Wait, breaking...');
+                                break;
+                            }
+                        } else {
+                            lastModule = 'wait';
+                            sameModuleCount = 1;
+                        }
+                        console.log('Module: Please Wait...');
+                        // Wait for progress to reach 100%
+                        await page.waitForFunction(() => {
+                            const text = document.body.innerText;
+                            return text.includes('100%');
+                        }, { timeout: 30000 }).catch(() => { });
+                        await sleep(500);
+                        // Find and click Continue button directly
+                        const continueBtn = await page.$('button.bg-blue-600');
+                        if (continueBtn) {
+                            await continueBtn.click();
+                            console.log('Clicked Continue (direct)');
+                        } else {
+                            await page.evaluate(() => {
+                                const buttons = Array.from(document.querySelectorAll('button'));
+                                buttons.find(b => b.textContent.includes('Continue') && !b.disabled)?.click();
+                            });
+                            console.log('Clicked Continue (fallback)');
+                        }
+                        modulesSolved++;
+                        await sleep(1000);
+                        continue;
+                    }
+
+                    // 3. Keyboard Test - Press 5 different keys
+                    const hasKeyboard = await page.evaluate(() =>
+                        document.body.innerText.includes('Keyboard Test') &&
+                        document.body.innerText.includes('Press any 5 different keys')
+                    );
+                    if (hasKeyboard) {
+                        console.log('Module: Keyboard Test');
+                        // Click on the area to focus
+                        await page.click('.bg-white.border-2.border-green-400');
+                        await sleep(100);
+                        // Press 5 different keys
+                        const keys = ['a', 'b', 'c', 'd', 'e'];
+                        for (const key of keys) {
+                            await page.keyboard.press(key);
+                            await sleep(100);
+                        }
+                        await sleep(300);
+                        await page.evaluate(() => {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            buttons.find(b => b.textContent.includes('Submit'))?.click();
+                        });
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 4. Bot Detection - DON'T check box, just click Verify
+                    const hasBotDetect = await page.evaluate(() =>
+                        document.body.innerText.includes('Bot Detection') &&
+                        document.body.innerText.includes('I am a robot')
+                    );
+                    if (hasBotDetect) {
+                        console.log('Module: Bot Detection (NOT checking box)');
+                        await page.evaluate(() => {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            buttons.find(b => b.textContent.includes('Verify'))?.click();
+                        });
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 5. System Update - Hover over red X 3 times then click
+                    const hasSystemUpdate = await page.evaluate(() =>
+                        document.body.innerText.includes('System Update') &&
+                        document.body.innerText.includes('Hover:')
+                    );
+                    if (hasSystemUpdate) {
+                        console.log('Module: System Update (hover game)');
+                        for (let i = 0; i < 5; i++) { // Extra hovers in case
+                            const redBtn = await page.$('button.bg-red-500');
+                            if (redBtn) {
+                                const box = await redBtn.boundingBox();
+                                if (box) {
+                                    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+                                    await sleep(150);
+                                }
+                            }
+                        }
+                        await sleep(300);
+                        // Click the X button after hovering
+                        await page.evaluate(() => {
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const xBtn = btns.find(b => b.className.includes('bg-red-500'));
+                            if (xBtn) xBtn.click();
+                        });
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 6. Hidden Button - Reveal and click
+                    const hasHiddenBtn = await page.evaluate(() =>
+                        document.body.innerText.includes('Hidden Button') &&
+                        document.body.innerText.includes('Reveal the hidden')
+                    );
+                    if (hasHiddenBtn) {
+                        console.log('Module: Hidden Button');
+                        // Move mouse around to reveal button
+                        for (let i = 0; i < 20; i++) {
+                            await page.mouse.move(
+                                200 + Math.random() * 600,
+                                200 + Math.random() * 400,
+                                { steps: 3 }
+                            );
+                            await sleep(50);
+                        }
+                        await sleep(300);
+                        // Click the revealed button
+                        await page.evaluate(() => {
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const clickBtn = btns.find(b =>
+                                b.textContent.includes('Click') && b.offsetParent !== null
+                            );
+                            if (clickBtn) clickBtn.click();
+                        });
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 7. Browser Update Required - Click "Not Now"
+                    const hasBrowserUpdate = await page.evaluate(() =>
+                        document.body.innerText.includes('Browser Update Required') ||
+                        document.body.innerText.includes('update your browser')
+                    );
+                    if (hasBrowserUpdate) {
+                        console.log('Module: Browser Update Required');
+                        await page.evaluate(() => {
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const notNow = btns.find(b => b.textContent.includes('Not Now'));
+                            if (notNow) notNow.click();
+                        });
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 8. Newsletter Subscribe - Type UNSUBSCRIBE and click Continue
+                    const hasNewsletter = await page.evaluate(() =>
+                        document.body.innerText.includes('Newsletter Subscribe') &&
+                        document.body.innerText.includes('UNSUBSCRIBE')
+                    );
+                    if (hasNewsletter) {
+                        console.log('Module: Newsletter Subscribe');
+                        await page.evaluate(() => {
+                            const input = document.querySelector('input');
+                            if (input) {
+                                input.value = 'UNSUBSCRIBE';
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            const contBtn = btns.find(b => b.textContent.includes('Continue'));
+                            if (contBtn) contBtn.click();
+                        });
+                        console.log('Typed UNSUBSCRIBE and clicked Continue');
+                        modulesSolved++;
+                        await sleep(500);
+                        continue;
+                    }
+
+                    // 9. Quick Survey - Click a star and Submit
+                    const hasSurvey = await page.evaluate(() =>
+                        document.body.innerText.includes('Quick Survey') &&
+                        document.body.innerText.includes('Rate your experience')
+                    );
+                    if (hasSurvey) {
+                        console.log('Module: Quick Survey');
+                        // Click one star (the 5th one for 5 stars, but any works)
+                        const stars = await page.$$('button');
+                        let starClicked = false;
+                        for (const star of stars) {
+                            const text = await page.evaluate(el => el.textContent, star);
+                            if (text.trim() === '★') {
+                                await star.click();
+                                console.log('Clicked star');
+                                starClicked = true;
+                                break; // Just click one star
+                            }
+                        }
+                        await sleep(200);
+                        // Click Submit
+                        if (starClicked) {
+                            const btns = await page.$$('button');
+                            for (const btn of btns) {
+                                const text = await page.evaluate(el => el.textContent, btn);
+                                if (text.includes('Submit')) {
+                                    await btn.click();
+                                    console.log('Clicked Submit (Survey)');
+                                    break;
+                                }
+                            }
+                        }
+                        modulesSolved++;
+                        await sleep(300);
+                        continue;
+                    }
+
+                    // No module found - might be done or something new
+                    console.log('No known module detected, checking for final CAPTCHA...');
+                    break;
+                }
+
+                console.log(`Solved ${modulesSolved} anti-bot modules`);
+
+                // ============================================================
+                // FINAL STEP: Complete dropout after anti-bot modules
+                // ============================================================
+                console.log('Starting final dropout sequence...');
+
+                // 1. Click the iframe checkbox
+                console.log('Looking for iframe checkbox...');
+                const iframeHandle = await page.$('iframe');
+                if (iframeHandle) {
+                    const frame = await iframeHandle.contentFrame();
+                    if (frame) {
+                        await frame.evaluate(() => {
+                            const cb = document.getElementById('final-agree');
+                            if (cb && !cb.checked) cb.click();
+                        });
+                        console.log('Checked iframe checkbox');
+                    }
+                }
+                await sleep(300);
+
+                // 2. Click Confirm Dropout
+                await page.evaluate(() => {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const btn = btns.find(b => b.textContent.includes('Confirm Dropout'));
+                    if (btn) btn.click();
+                });
+                console.log('Clicked Confirm Dropout');
+                await sleep(1000);
+
+                // 3. Get auth token again (in case it wasn't available earlier)
+                if (!authToken) {
+                    authToken = await page.evaluate(() => {
+                        const match = document.cookie.match(/auth_token=([^;]+)/);
+                        if (match) return match[1];
+                        const lsToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
+                        if (lsToken) return lsToken;
+                        return null;
+                    });
+
+                    if (!authToken) {
+                        const cookies = await page.cookies('https://hackathon-backend-326152168.us-east4.run.app');
+                        console.log(`Backend cookies: ${cookies.length} found`);
+                        const authCookie = cookies.find(c => c.name === 'auth_token');
+                        if (authCookie) {
+                            authToken = authCookie.value;
+                            console.log('Got auth token from backend cookies');
+                        }
+                    }
+                }
+
+                if (authToken) {
+                    console.log('Auth token acquired - running brute force attack...');
+
+                    const result = await page.evaluate(async (token) => {
+                        const AUTH_HEADER = "Bearer " + token;
+                        const BASE_URL = "https://hackathon-backend-326152168.us-east4.run.app";
+
+                        let challengeData;
+                        try {
+                            const res = await fetch(`${BASE_URL}/captcha/challenge?challenge_type=pretty_faces`);
+                            if (!res.ok) return { error: 'Failed to fetch puzzle' };
+                            challengeData = await res.json();
+                        } catch (e) {
+                            return { error: 'Network error fetching puzzle' };
+                        }
+
+                        const encryptedKey = challengeData.encrypted_answer;
+                        const allUrls = challengeData.images.map(img => img.url);
+                        const totalCombinations = 512;
+                        const batchSize = 50;
+                        let solvedToken = null;
+
+                        for (let i = 0; i < totalCombinations; i += batchSize) {
+                            const batchPromises = [];
+                            for (let j = 0; j < batchSize; j++) {
+                                if (i + j >= totalCombinations) break;
+                                const currentVal = i + j;
+                                const selectedUrls = [];
+                                for (let bit = 0; bit < 9; bit++) {
+                                    if ((currentVal >> bit) & 1) selectedUrls.push(allUrls[bit]);
+                                }
+                                const p = fetch(`${BASE_URL}/captcha/submit`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", "Authorization": AUTH_HEADER },
+                                    body: JSON.stringify({ purpose: "dropout", encrypted_answer: encryptedKey, selected_urls: selectedUrls })
+                                }).then(async res => {
+                                    if (res.ok) return (await res.json()).captcha_solved_token;
+                                    return false;
+                                }).catch(() => false);
+                                batchPromises.push(p);
+                            }
+                            const results = await Promise.all(batchPromises);
+                            solvedToken = results.find(r => r !== false);
+                            if (solvedToken) break;
+                            await new Promise(r => setTimeout(r, 10));
+                        }
+
+                        if (!solvedToken) return { error: 'Failed to solve captcha' };
+
+                        const superPayload = {
+                            captcha_solved_token: solvedToken,
+                            keystroke_count: 310,
+                            unique_chars_count: 45,
+                            checkbox_entropy: 150.5,
+                            confirm_button_entropy: 150.0,
+                            captcha_entropy: 750.0,
+                            time_on_page: 2500.0
+                        };
+
+                        try {
+                            const response = await fetch(`${BASE_URL}/dropout`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", "Authorization": AUTH_HEADER },
+                                body: JSON.stringify(superPayload)
+                            });
+                            const data = await response.json();
+                            if (response.ok) {
+                                return { success: true, data };
+                            } else {
+                                return { error: 'Dropout failed', status: response.status, data };
+                            }
+                        } catch (e) {
+                            return { error: 'Network error on dropout' };
+                        }
+                    }, authToken);
+
+                    if (result.success) {
+                        console.log('DROPOUT SUCCESSFUL');
+                        console.log('Response:', JSON.stringify(result.data));
+                        isSuccess = true;
+                    } else {
+                        console.log('Dropout failed:', result.error);
+                        if (result.data) console.log('Details:', JSON.stringify(result.data));
+                    }
+
+                    await page.reload({ waitUntil: 'domcontentloaded' });
+                    console.log('Page refreshed');
+                } else {
+                    console.log('No auth token found - cannot complete dropout');
+                }
+            } // End of else (!bruteForceSuccess branch)
+        } // End of else (bruteforce check)
 
         // ====================================================================
         // STEP 7: Save credentials to file
@@ -1834,8 +1969,6 @@ async function dropClasses(options = {}) {
         }
         return { success: false, username: null, error: error.message };
     }
-
-
 }
 
 // ============================================================================
@@ -1849,7 +1982,7 @@ async function dropClasses(options = {}) {
  * @returns {Promise<{success: boolean, username: string, error: string|null}>}
  */
 async function registerOnDeckathon(options = {}) {
-    const { runId } = options;
+    const { runId, headless = false } = options;
     const prefix = runId !== undefined ? `[Run ${runId}] ` : '';
 
     console.log(`${prefix}Starting Full Deckathon Registration Flow\n`);
@@ -1868,7 +2001,8 @@ async function registerOnDeckathon(options = {}) {
         password: accountResult.password,
         email: accountResult.email,
         fullName: accountResult.fullName,
-        runId
+        runId,
+        headless
     });
 
     return dropResult;
@@ -1882,4 +2016,3 @@ const isElectron = process.versions && process.versions.electron;
 if (require.main === module && !isElectron) {
     registerOnDeckathon();
 }
-
