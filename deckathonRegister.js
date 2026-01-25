@@ -148,6 +148,100 @@ async function naturalMouseMove(page) {
     }
 }
 
+// Track last known mouse position for bezier movements
+let lastMouseX = 500;
+let lastMouseY = 400;
+
+/**
+ * Move mouse along a quadratic bezier curve from current position to target element
+ * Uses a random control point for natural-looking curved movement
+ * @param {Page} page - Puppeteer page object
+ * @param {string} buttonText - Text content to find the button
+ * @returns {boolean} - Whether the button was found and clicked
+ */
+async function bezierMoveAndClick(page, buttonText) {
+    // Find the button and get its bounding box
+    const buttonInfo = await page.evaluate((text) => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const btn = buttons.find(b => b.textContent.includes(text) && !b.disabled);
+        if (!btn) return null;
+        const rect = btn.getBoundingClientRect();
+        return {
+            x: rect.x + rect.width / 2,
+            y: rect.y + rect.height / 2,
+            found: true
+        };
+    }, buttonText);
+
+    if (!buttonInfo) {
+        console.log(`Button "${buttonText}" not found`);
+        return false;
+    }
+
+    const startX = lastMouseX;
+    const startY = lastMouseY;
+    const endX = buttonInfo.x;
+    const endY = buttonInfo.y;
+
+    // Calculate distance for determining number of steps and duration
+    const distance = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+
+    // Natural movement duration based on Fitts's law approximation (200-600ms)
+    const duration = Math.min(600, Math.max(200, distance * 0.8 + 100));
+    const steps = Math.max(20, Math.floor(duration / 16)); // ~60fps
+
+    // Generate random control point for quadratic bezier
+    // Control point is offset perpendicular to the direct path
+    const midX = (startX + endX) / 2;
+    const midY = (startY + endY) / 2;
+    const perpOffset = (Math.random() - 0.5) * Math.min(200, distance * 0.4);
+    const angle = Math.atan2(endY - startY, endX - startX) + Math.PI / 2;
+    const controlX = midX + Math.cos(angle) * perpOffset;
+    const controlY = midY + Math.sin(angle) * perpOffset;
+
+    console.log(`Bezier curve: (${Math.round(startX)},${Math.round(startY)}) -> (${Math.round(endX)},${Math.round(endY)}) via control (${Math.round(controlX)},${Math.round(controlY)})`);
+
+    // Move along the quadratic bezier curve
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+
+        // Ease-out timing for natural deceleration
+        const easedT = 1 - Math.pow(1 - t, 2);
+
+        // Quadratic bezier formula: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+        const oneMinusT = 1 - easedT;
+        const x = oneMinusT * oneMinusT * startX +
+            2 * oneMinusT * easedT * controlX +
+            easedT * easedT * endX;
+        const y = oneMinusT * oneMinusT * startY +
+            2 * oneMinusT * easedT * controlY +
+            easedT * easedT * endY;
+
+        // Add tiny jitter for human imperfection
+        const jitterX = (Math.random() - 0.5) * 2;
+        const jitterY = (Math.random() - 0.5) * 2;
+
+        await page.mouse.move(x + jitterX, y + jitterY);
+        await sleep(duration / steps);
+    }
+
+    // Update last known position
+    lastMouseX = endX;
+    lastMouseY = endY;
+
+    // Small pause before clicking (human reaction time)
+    await sleep(50 + Math.random() * 100);
+
+    // Click the button
+    await page.evaluate((text) => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const btn = buttons.find(b => b.textContent.includes(text) && !b.disabled);
+        if (btn) btn.click();
+    }, buttonText);
+
+    return true;
+}
+
 // ============================================================================
 // CAPTCHA SOLVING FUNCTIONS
 // ============================================================================
@@ -1186,18 +1280,12 @@ async function registerOnDeckathon(options = {}) {
                 await sleep(1500);
 
 
-                await newPage.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Process Payment') && !b.disabled)?.click();
-                });
+                await bezierMoveAndClick(newPage, 'Process Payment');
                 console.log('Clicked Process Payment');
                 await sleep(8200);
 
                 // Click Process Payment again
-                await newPage.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    buttons.find(b => b.textContent.includes('Process Payment') && !b.disabled)?.click();
-                });
+                await bezierMoveAndClick(newPage, 'Process Payment');
                 console.log('Clicked Process Payment again');
                 await sleep(1000);
 
@@ -1208,10 +1296,7 @@ async function registerOnDeckathon(options = {}) {
                 if (!hasCaptcha) {
                     console.log('CAPTCHA not detected, retrying...');
                     await sleep(7500);
-                    await newPage.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        buttons.find(b => b.textContent.includes('Process Payment') && !b.disabled)?.click();
-                    });
+                    await bezierMoveAndClick(newPage, 'Process Payment');
                     console.log('Clicked Process Payment (third attempt)');
                     await sleep(1000);
                 }
