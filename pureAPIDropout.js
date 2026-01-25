@@ -1,20 +1,18 @@
 /**
- * PURE API DROPOUT SCRIPT - v9 (PARALLEL OPTIMIZED)
- * 
- * Key Optimizations:
- * 1. Prefetch Login Token during Registration Wait (Saves 2s)
- * 2. Parallel Class Dropping & Payment Token Fetching (Saves ~0.5s)
- * 3. Overlapped Payment Wait (Saves ~1s)
+ * PURE API DROPOUT - Parallel Optimized
  */
 
 require('dotenv').config();
+const readline = require('readline');
+const { connect } = require('puppeteer-real-browser');
 
 const BASE_URL = "https://hackathon-backend-326152168.us-east4.run.app";
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// ============================================================================
-// BRUTE FORCE CAPTCHA
-// ============================================================================
+function prompt(question) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans); }));
+}
 
 async function bruteForceCaptcha(challengeType, purpose, authToken = null) {
     if (authToken) console.log(`   Solving ${challengeType} captcha...`);
@@ -54,37 +52,37 @@ async function bruteForceCaptcha(challengeType, purpose, authToken = null) {
     return null;
 }
 
-// ============================================================================
-// MAIN FLOW
-// ============================================================================
-
 async function main() {
-    const startTime = Date.now();
     console.log("=".repeat(60));
-    console.log("🚀 PURE API DROPOUT v9 - PARALLEL OPTIMIZED");
+    console.log("PURE API DROPOUT");
     console.log("=".repeat(60));
 
     try {
         let account = {};
 
-        // ---------------------------------------------------------
-        // 1. REGISTER & PREFETCH LOGIN (Parallel)
-        // ---------------------------------------------------------
+        const mode = await prompt("\n[R]egister new account or [L]ogin existing? ");
+        
+        if (mode.toLowerCase() === 'l') {
+            const creds = await prompt("Enter credentials (username:password): ");
+            const [username, password] = creds.split(':');
+            if (!username || !password) throw new Error("Invalid format. Use username:password");
+            account = { username, password };
+            console.log(`\nUsing: ${account.username}`);
+        }
 
-        // Start fetching login token immediately!
-        console.log("⚡️ Prefetching Login Token (Background)...");
+        // Start timer AFTER user input
+        const startTime = Date.now();
+        
+        console.log("\nPrefetching login token...");
         const loginTokenPromise = fetch(`${BASE_URL}/form/prepare/public/login`).then(async r => {
             const data = await r.json();
-            console.log("   ✅ Login token ready (Waiting for registration...)");
+            console.log("   Login token ready");
             return data.form_prep_token;
         });
 
-        // Register
-        if (process.argv[2] && process.argv[3]) {
-            console.log("ℹ️  Using provided credentials (Skipping Registration)");
-            account = { username: process.argv[2], password: process.argv[3] };
-        } else {
-            console.log("\n📝 REGISTERING (API)...");
+        if (mode.toLowerCase() !== 'l') {
+            // Register mode
+            console.log("\nRegistering...");
             account.username = Array.from({ length: 8 }, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join('') + Math.floor(Math.random() * 999);
             account.email = account.username + "@outlook.com";
             account.password = "Aa1!" + Array.from({ length: 8 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]).join('');
@@ -93,8 +91,8 @@ async function main() {
             const regPrepRes = await fetch(`${BASE_URL}/form/prepare/public/register`);
             const regPrepData = await regPrepRes.json();
 
-            console.log("   Got reg token, waiting 10s...");
-            await sleep(10000); // Strict mandatory wait
+            console.log("   Waiting 10s (anti-bot)...");
+            await sleep(10000);
 
             const regRes = await fetch(`${BASE_URL}/user`, {
                 method: 'POST',
@@ -106,21 +104,21 @@ async function main() {
                 })
             });
             if (!regRes.ok) throw new Error("Registration failed: " + JSON.stringify(await regRes.json()));
-            console.log("   ✅ Registered!");
+            console.log("   Registered");
         }
 
-        // ---------------------------------------------------------
-        // 2. LOGIN (Immediate - using prefetched token)
-        // ---------------------------------------------------------
-        console.log("\n🔑 LOGGING IN (API)...");
-
-        // Wait for login token (should be ready already)
+        // Login
+        console.log("\nLogging in...");
         const loginFormToken = await loginTokenPromise;
 
-        // No wait needed here because >2s passed during usage/registration!
+        // Need to wait if we didn't register (registration wait covers this otherwise)
+        if (mode.toLowerCase() === 'l') {
+            console.log("   Waiting 2s (anti-bot)...");
+            await sleep(2000);
+        }
 
         const loginCaptcha = await bruteForceCaptcha("logos", "auth");
-        if (!loginCaptcha) throw new Error("Login CAPTCHA failed");
+        if (!loginCaptcha) throw new Error("Login captcha failed");
 
         const loginRes = await fetch(`${BASE_URL}/login`, {
             method: 'POST',
@@ -134,9 +132,8 @@ async function main() {
 
         const loginData = await loginRes.json();
         const mfaToken = loginData.mfa_required_auth_token;
-        if (!mfaToken) throw new Error("No MFA token");
+        if (!mfaToken) throw new Error("No MFA token: " + JSON.stringify(loginData));
 
-        // MFA
         const mfaInit = await fetch(`${BASE_URL}/mfa/initiate`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${mfaToken}` }
         }).then(r => r.json());
@@ -150,30 +147,23 @@ async function main() {
 
         const authToken = mfaSubmit.auth_token;
         if (!authToken) throw new Error("Login failed");
-        console.log("   ✅ Logged in!");
+        console.log("   Logged in");
 
-        // ---------------------------------------------------------
-        // 3. PARALLEL OPERATIONS (Drop Classes + Payment Prep)
-        // ---------------------------------------------------------
-        console.log("\n⚡️ PARALLEL: Dropping Classes + Prepping Payment...");
-
+        // Parallel: Drop Classes + Payment Prep
+        console.log("\nDropping classes + prepping payment (parallel)...");
         const authHeader = { 'Authorization': `Bearer ${authToken}` };
 
-        // A. Start Payment Prep Timer (Promise)
         const paymentPrepPromise = (async () => {
-            console.log("   [Pay] Getting prep tokens...");
             const [payPrep, cardPrep] = await Promise.all([
                 fetch(`${BASE_URL}/form/prepare/payment`, { headers: authHeader }).then(r => r.json()),
                 fetch(`${BASE_URL}/form/prepare/payment_method`, { headers: authHeader }).then(r => r.json())
             ]);
-            console.log("   [Pay] Tokens acquired. Waiting 10s...");
-            await sleep(10000); // 10s mandatory wait
+            console.log("   [Pay] Tokens acquired, waiting 10s...");
+            await sleep(10000);
             return { payToken: payPrep.form_prep_token, cardToken: cardPrep.form_prep_token };
         })();
 
-        // B. Drop Classes (Promise)
         const dropClassesPromise = (async () => {
-            console.log("   [Drop] Fetching classes...");
             const userRes = await fetch(`${BASE_URL}/user-info`, { headers: authHeader });
             const userData = await userRes.json();
             const classes = userData.classes || [];
@@ -186,35 +176,28 @@ async function main() {
                         body: JSON.stringify({ class_id: c.class_id })
                     })
                 ));
-                console.log(`   [Drop] ✅ ${classes.length} classes dropped`);
+                console.log(`   [Drop] ${classes.length} classes dropped`);
             } else {
                 console.log("   [Drop] No classes to drop");
             }
         })();
 
-        // Wait for BOTH to finish (Payment wait is longest)
         const [tokens] = await Promise.all([paymentPrepPromise, dropClassesPromise]);
 
-        // ---------------------------------------------------------
-        // 4. CHECKOUT & PAY
-        // ---------------------------------------------------------
-        console.log("\n💳 PAYING (API)...");
-
-        // Check balance (it should be updated now)
+        // Payment
+        console.log("\nPayment...");
         const userRes = await fetch(`${BASE_URL}/user-info`, { headers: authHeader });
         const userData = await userRes.json();
         const balance = userData.finance?.balance || 0;
         console.log(`   Balance: $${balance}`);
 
         if (balance > 0) {
-            // Get checkout session
             const checkoutRes = await fetch(`${BASE_URL}/payment/checkout-session`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader },
                 body: JSON.stringify({ amount: balance, currency: "CAD" })
             });
             const session = await checkoutRes.json();
 
-            // Add Card
             const addCardRes = await fetch(`${BASE_URL}/payment-method`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader },
                 body: JSON.stringify({
@@ -223,13 +206,11 @@ async function main() {
                     mouse_movement_count: 200, mouse_total_distance: 4000
                 })
             });
-            if (!addCardRes.ok) console.log("   Add Card Issue:", await addCardRes.json());
-            else console.log("   ✅ Card Added");
+            if (!addCardRes.ok) console.log("   Add card failed:", await addCardRes.json());
+            else console.log("   Card added");
 
-            // Solve Captcha
             const payCaptcha = await bruteForceCaptcha("sun", "payment", authToken);
 
-            // Pay
             const payRes = await fetch(`${BASE_URL}/payment`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader },
                 body: JSON.stringify({
@@ -239,15 +220,13 @@ async function main() {
                     mouse_movement_count: 200, mouse_total_distance: 4000
                 })
             });
-            console.log(`   Payment Status: ${payRes.status}`);
+            console.log(`   Payment: ${payRes.status}`);
         } else {
-            console.log("   ✅ No payment needed");
+            console.log("   No payment needed");
         }
 
-        // ---------------------------------------------------------
-        // 5. DROPOUT
-        // ---------------------------------------------------------
-        console.log("\n🚪 DROPOUT (API)...");
+        // Dropout
+        console.log("\nDropout...");
         const dropoutCaptcha = await bruteForceCaptcha("pretty_faces", "dropout", authToken);
 
         const dropoutRes = await fetch(`${BASE_URL}/dropout`, {
@@ -264,14 +243,55 @@ async function main() {
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
         console.log("\n" + "=".repeat(60));
-        console.log(success ? "✅ SUCCESS!" : "❌ FAILED");
+        console.log(success ? "SUCCESS" : "FAILED");
         console.log(`   Username: ${account.username}`);
         console.log(`   Password: ${account.password}`);
-        console.log(`   ⏱️  Total time: ${duration}s`);
+        console.log(`   Time: ${duration}s`);
         console.log("=".repeat(60));
 
+        // Browser verification (not counted in time)
+        await verifyWithBrowserLogin(account.username, account.password);
+
     } catch (err) {
-        console.error("\n❌ Error:", err.message);
+        console.error("\nError:", err.message);
+    }
+}
+
+async function verifyWithBrowserLogin(username, password) {
+    console.log("\nVerifying with browser login...");
+    console.log(`   Credentials: ${username} / ${password}`);
+
+    const { performLogin, handleOTP, solveCaptcha } = require('./steps');
+
+    const connection = await connect({
+        headless: false,
+        fingerprint: false,
+        turnstile: true,
+        args: ['--window-size=1920,1080'],
+        customConfig: { chromePath: process.env.CHROME_PATH },
+        connectOption: { defaultViewport: { width: 1920, height: 1080 } }
+    });
+
+    const page = connection.page;
+    const CONFIG = {
+        LOGIN_URL: 'https://deckathon-concordia.com/login',
+        BACKEND_URL: BASE_URL,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY
+    };
+
+    try {
+        await performLogin(page, username, password, CONFIG);
+        await solveCaptcha(page);
+        await handleOTP(page);
+        
+        console.log("   Browser login successful - check browser to verify dropout status");
+        console.log("   Browser will stay open for manual verification...");
+        
+        return { page, browser: connection.browser };
+    } catch (err) {
+        console.log("   Browser login failed:", err.message);
+        console.log("   This likely means the account was successfully dropped out");
+        return { page, browser: connection.browser };
     }
 }
 
