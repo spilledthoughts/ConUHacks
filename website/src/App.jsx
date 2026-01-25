@@ -26,7 +26,6 @@ function App() {
             href="#download"
             className="btn btn-primary"
           >
-            <span className="btn-icon">⬇️</span>
             Download
           </a>
           <a
@@ -35,7 +34,6 @@ function App() {
             rel="noopener noreferrer"
             className="btn btn-secondary"
           >
-            <span className="btn-icon">📦</span>
             GitHub
           </a>
         </div>
@@ -43,7 +41,7 @@ function App() {
 
       {/* Footer */}
       <footer className="footer">
-        <p>Made with ❤️ at ConUHacks 2026</p>
+        <p>Made at ConUHacks 2026</p>
       </footer>
     </div>
   )
