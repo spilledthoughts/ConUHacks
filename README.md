@@ -15,7 +15,7 @@ The project consists of three main components:
 
 ---
 
-## 🚀 Quick Start (Script)
+## Quick Start (Script)
 
 For the fastest exection, run the file **pureApiDropout.js** directly. This script uses a direct API approach, using only the browser for showing the completed drop out message.
 
@@ -39,7 +39,7 @@ For the fastest exection, run the file **pureApiDropout.js** directly. This scri
 
 ---
 
-## 🖥️ Electron Desktop App
+## Electron Desktop App
 
 We provide a standalone desktop application for a simpler user experience.
 
@@ -62,7 +62,7 @@ This generates `frontend/dist/Dropped 1.0.0.exe`.
 
 ---
 
-## 🌐 Website
+## Website
 
 The project includes a promotional landing page.
 
@@ -76,7 +76,7 @@ npm run dev
 
 ---
 
-## 🧠 How It Works
+## How It Works
 
 This tool automates the entire student lifecycle in the challenge environment:
 
@@ -88,7 +88,7 @@ This tool automates the entire student lifecycle in the challenge environment:
 4.  **Financials**: Checks balance and performs credit card payments if there are outstanding fees.
 5.  **Dropout**: Finalizes the dropout process after solving the "Pretty Faces" verification.
 
-### 🛡️ Anti-Bot Countermeasures Solved
+### Anti-Bot Countermeasures Solved
 
 The script successfully navigates 12 distinct verification modules:
 
@@ -105,7 +105,7 @@ The script successfully navigates 12 distinct verification modules:
 | **Newsletter** | `API` | Types "UNSUBSCRIBE" confirmation. |
 | **Terms & Cond.** | `API` | Simulates scroll-to-bottom event before accepting. |
 
-### 🤖 CAPTCHA Solving Strategy
+### CAPTCHA Solving Strategy
 
 We employ a multi-modal approach to solving the varied CAPTCHAs:
 
@@ -115,7 +115,7 @@ We employ a multi-modal approach to solving the varied CAPTCHAs:
 
 ---
 
-## 🛠️ Technologies
+## Technologies
 
 *   **Node.js**: Core runtime.
 *   **Electron**: Desktop GUI framework.
@@ -127,5 +127,5 @@ We employ a multi-modal approach to solving the varied CAPTCHAs:
 ---
 
 <p align="center">
-  Made with ❤️ for ConUHacks 2026
+  Made with love for ConUHacks 2026
 </p>
